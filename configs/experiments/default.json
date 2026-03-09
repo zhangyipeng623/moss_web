@@ -1,0 +1,33 @@
+{
+  "name": "mideast_conflict_demo",
+  "description": "默认推演场景：围绕美伊冲突升级的舆情传播模拟。",
+  "global_event": "北京时间2026年3月3日，美伊冲突持续升级：伊朗伊斯兰革命卫队凌晨对美国驻沙特大使馆发动无人机袭击，并向巴林谢赫伊萨空军基地发射无人机与弹道导弹；美军随后对伊朗革命卫队指挥控制设施、防空系统及导弹与无人机发射阵地展开反击，双方军事对抗进一步升级。",
+  "llm": {
+    "model": "gpt-4o",
+    "timeout": 180,
+    "api_key_env": "API_KEY",
+    "base_url_env": "BASE_URL"
+  },
+  "system_time": {
+    "mode": "step",
+    "start_time": "2026-03-03T08:00:00",
+    "time_scale": 600
+  },
+  "runtime": {
+    "rounds": 3,
+    "interval_seconds": 3.0,
+    "random_seed": 42
+  },
+  "agents": [
+    {
+      "username": "agent_iran_military_analyst",
+      "name": "Alpha",
+      "bio": "我是资深军事分析专家，专攻伊朗伊斯兰革命卫队作战行动，长期追踪伊朗无人机与导弹能力建设，擅长分析伊朗针对中东地区美军目标的报复性军事行动。使用简体中文语言进行分析和沟通。"
+    },
+    {
+      "username": "agent_us_mideast_strategy_advisor",
+      "name": "Beta",
+      "bio": "我是美国中东安全战略顾问，聚焦美国中央司令部对伊朗的反击行动，擅长评估美伊冲突升级对地区稳定、国际政治与能源安全的影响。使用简体中文语言进行分析和沟通。"
+    }
+  ]
+}
