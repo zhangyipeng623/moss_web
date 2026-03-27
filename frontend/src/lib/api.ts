@@ -12,8 +12,8 @@ export const getPosts = async (limit: number = 20, offset: number = 0) => {
   return response.data;
 };
 
-export const getTraces = async (limit: number = 50) => {
-    const response = await api.get<Trace[]>('/traces', { params: { limit } });
+export const getTraces = async () => {
+    const response = await api.get<Trace[]>('/traces');
     return response.data;
 };
 

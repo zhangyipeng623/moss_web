@@ -133,8 +133,8 @@ async def init_db():
 
         # Initialize God user
         await db.execute("""
-            INSERT OR IGNORE INTO users (id, username, nickname, type, bio, user_info)
-            VALUES (99999, 'god', 'God', 'GOD', 'The Omniscient Observer', '{}')
+            INSERT OR IGNORE INTO users (username, nickname, type, bio, user_info)
+            VALUES ('god', 'God', 'GOD', 'The Omniscient Observer', '{}')
         """)
 
         await db.commit()

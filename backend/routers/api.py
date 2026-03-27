@@ -80,8 +80,8 @@ async def get_all_posts(limit: int = 20, offset: int = 0):
 
 
 @router.get("/api/v1/traces", response_model=List[TraceResponse])
-async def get_recent_traces(limit: int = 50):
-    traces = await posts.get_recent_traces(limit)
+async def get_recent_traces():
+    traces = await posts.get_recent_traces()
     return traces
 
 

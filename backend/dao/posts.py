@@ -59,7 +59,7 @@ async def get_post_detail(
             FROM comments c
             JOIN users u ON c.user_id = u.id
             WHERE c.post_id = ?
-            ORDER BY c.created_at ASC
+            ORDER BY c.created_at ASC, c.id ASC
             """,
             (post_id,),
         ) as cursor:
@@ -366,7 +366,7 @@ async def get_all_posts(limit: int = 20, offset: int = 0) -> List[Dict[str, Any]
             SELECT p.*, u.nickname as author_nickname, u.type as author_type
             FROM posts p
             JOIN users u ON p.user_id = u.id
-            ORDER BY p.created_at DESC
+            ORDER BY p.created_at DESC, p.id DESC
             LIMIT ? OFFSET ?
             """,
             (limit, offset),
@@ -384,7 +384,7 @@ async def get_all_posts(limit: int = 20, offset: int = 0) -> List[Dict[str, Any]
         return result
 
 
-async def get_recent_traces(limit: int = 50) -> List[Dict[str, Any]]:
+async def get_recent_traces() -> List[Dict[str, Any]]:
     async with get_db_connection() as db:
         async with db.execute(
             """
@@ -392,9 +392,8 @@ async def get_recent_traces(limit: int = 50) -> List[Dict[str, Any]]:
             FROM trace t
             JOIN users u ON t.user_id = u.id
             ORDER BY t.created_at DESC, t.id DESC
-            LIMIT ?
+            LIMIT 50
             """,
-            (limit,),
         ) as cursor:
             traces = await cursor.fetchall()
 

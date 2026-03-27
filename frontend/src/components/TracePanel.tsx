@@ -6,12 +6,12 @@ import { twMerge } from 'tailwind-merge';
 interface TracePanelProps {
     className?: string;
     traces: Trace[];
-    isPaused: boolean;
-    onPauseToggle: () => void;
-    onClear: () => void;
 }
 
-export function TracePanel({ className, traces }: TracePanelProps) {
+export function TracePanel({
+    className,
+    traces,
+}: TracePanelProps) {
     const [isOpen, setIsOpen] = useState(true);
     const [width, setWidth] = useState(320);
     const [filter, setFilter] = useState('');
@@ -136,7 +136,6 @@ export function TracePanel({ className, traces }: TracePanelProps) {
             <div className="flex items-center justify-between p-3 border-b border-slate-100 bg-slate-50/50 rounded-t-xl pl-6">
                 <h3 className="text-sm font-bold font-display text-slate-700">System Traces</h3>
                 <div className="flex items-center gap-1">
-
                     <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-slate-200 rounded text-slate-500">
                         <ChevronRight size={16} />
                     </button>
@@ -149,7 +148,7 @@ export function TracePanel({ className, traces }: TracePanelProps) {
                     <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                         type="text"
-                        placeholder="Filter logs..."
+                        placeholder="筛选轨迹..."
                         value={filter}
                         onChange={(e) => setFilter(e.target.value)}
                         className="w-full bg-slate-100 border border-slate-200 rounded px-2 py-1 pl-7 text-xs text-slate-600 focus:outline-none focus:border-cyan-500/50 focus:bg-white transition-colors"
@@ -180,7 +179,7 @@ export function TracePanel({ className, traces }: TracePanelProps) {
                     </div>
                 ))}
                 {filteredTraces.length === 0 && (
-                    <div className="text-center text-slate-400 py-8">No traces found</div>
+                    <div className="text-center text-slate-400 py-8">暂无轨迹</div>
                 )}
             </div>
         </div>

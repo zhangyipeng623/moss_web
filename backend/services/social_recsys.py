@@ -127,7 +127,7 @@ class SocialRecSys:
                     SELECT p.*,  u.nickname as author_nickname
                     FROM posts p 
                     JOIN users u ON p.user_id = u.id 
-                    ORDER BY p.created_at DESC LIMIT 100
+                    ORDER BY p.created_at DESC, p.id DESC LIMIT 100
                 """) as cursor:
                     posts = [dict(row) for row in await cursor.fetchall()]
 

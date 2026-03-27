@@ -99,7 +99,7 @@ class AgentGraph:
                 return await agent.platform.like_post(params.get("post_id"))
             elif action_type == "repost":
                 return await agent.platform.repost(
-                    params.get("post_id"), params.get("content", "")
+                    params.get("post_id")
                 )
             elif action_type == "quote":
                 return await agent.platform.quote(

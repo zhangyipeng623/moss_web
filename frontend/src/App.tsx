@@ -15,13 +15,14 @@ function Home({ posts, systemTime, onLoadMore, hasMore, isLoadingMore }: { posts
   );
 }
 
-function App() {
+function AppContent() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [traces, setTraces] = useState<Trace[]>([]);
-  const [isPausedTraces, setIsPausedTraces] = useState(false);
   const [, setErrorCount] = useState(0);
   const [pollInterval, setPollInterval] = useState(3000); // Changed to 3s
   const [systemTime, setSystemTime] = useState<number>(Date.now());
+  const [systemTimeLabel, setSystemTimeLabel] = useState<string>('');
+  const [timeMode, setTimeMode] = useState<string>('');
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
@@ -57,7 +58,7 @@ function App() {
         // But here we will just merge the NEW ones at the top.
         const [newPosts, newTraces, currentTimeData] = await Promise.all([
           getPosts(20, 0), // Poll latest 20
-          !isPausedTraces ? getTraces(50) : Promise.resolve([]),
+          getTraces(),
           getTime()
         ]);
 
@@ -92,8 +93,10 @@ function App() {
 
         // We need to store systemTime in state to pass it down
         setSystemTime(systemTime);
+        setSystemTimeLabel(currentTimeData.current_time);
+        setTimeMode(currentTimeData.mode);
 
-        if (!isPausedTraces && Array.isArray(newTraces)) {
+        if (Array.isArray(newTraces)) {
           setTraces(prev => {
             // If newTraces is empty, don't change anything
             if (newTraces.length === 0) return prev;
@@ -104,9 +107,8 @@ function App() {
             if (uniqueNew.length === 0) return prev;
 
             // Prepend new traces to the list
-            let updated = [...uniqueNew, ...prev];
-            if (updated.length > 200) updated = updated.slice(0, 150);
-            return updated;
+            const updated = [...uniqueNew, ...prev];
+            return updated.slice(0, 50);
           });
         }
 
@@ -129,24 +131,31 @@ function App() {
     fetchData(); // Fetch immediately on mount
     const id = setInterval(fetchData, pollInterval);
     return () => clearInterval(id);
-  }, [pollInterval, isPausedTraces]); // Re-run when interval changes
+  }, [pollInterval]);
 
   return (
-    <BrowserRouter>
-      <div className="min-h-screen bg-slate-50 text-slate-800 font-body">
-        <SystemClock />
-        <TracePanel
-          traces={traces}
-          isPaused={isPausedTraces}
-          onPauseToggle={() => setIsPausedTraces(!isPausedTraces)}
-          onClear={() => setTraces([])}
-        />
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-body">
+      <SystemClock
+        time={systemTimeLabel}
+        mode={timeMode}
+        className="left-auto right-4 md:right-6"
+      />
+      <TracePanel
+        traces={traces}
+      />
 
-        <Routes>
-          <Route path="/" element={<Home posts={posts} systemTime={systemTime} onLoadMore={handleLoadMore} hasMore={hasMore} isLoadingMore={isLoadingMore} />} />
-          <Route path="/post/:id" element={<PostDetail />} />
-        </Routes>
-      </div>
+      <Routes>
+        <Route path="/" element={<Home posts={posts} systemTime={systemTime} onLoadMore={handleLoadMore} hasMore={hasMore} isLoadingMore={isLoadingMore} />} />
+        <Route path="/post/:id" element={<PostDetail systemTime={systemTime} />} />
+      </Routes>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AppContent />
     </BrowserRouter>
   );
 }
