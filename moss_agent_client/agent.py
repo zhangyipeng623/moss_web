@@ -1,21 +1,32 @@
 import time
 import traceback
-from typing import Dict, Any, Optional, List
+from typing import Any, Optional
 
 from langchain.agents import create_agent
-from langchain.tools import tool
 from langchain_core.messages import HumanMessage
+from langchain_core.tools import StructuredTool
 from langchain_openai import ChatOpenAI
+from pydantic import create_model
 
+from moss_agent_client.actions import ACTION_SPECS, ACTION_SPEC_BY_NAME, ActionSpec
 from moss_agent_client.agent_logger import logger
+from moss_agent_client.memory import (
+    ActionTrace,
+    DecisionResultPayload,
+    EnvironmentSnapshot,
+    FeedItemSnapshot,
+    StaticContext,
+)
+from moss_agent_client.memory_manager import MemoryManager
+from moss_agent_client.prompt_builder import PromptBuilder
 from moss_agent_client.remote_platform import RemotePlatform
+from moss_agent_client.utils import extract_json_dict, normalize_text_content
 
-# Prompt Template
-USER_PROFILE_TEMPLATE = """You are {name}, a user on a social network.
+USER_PROFILE_TEMPLATE = """你现在需要扮演 {name}，一个社交网络上的用户。
 {user_profile}"""
 
-CURRENT_EVENT_TEMPLATE = """[CURRENT EVENT]
-The world is currently focusing on the following event:
+CURRENT_EVENT_TEMPLATE = """[全局事件]
+当前世界关注的核心事件如下：
 "{global_event_description}"
 """
 
@@ -29,28 +40,32 @@ class MossAgent:
         bio: str,
         global_event: str,
         llm: ChatOpenAI,
-        user_info: Optional[Dict[str, Any]] = None,
+        user_info: Optional[dict[str, Any]] = None,
         user_info_template: Optional[str] = None,
     ):
         self.platform = platform
         self.username = username
         self.nickname = nickname
         self.bio = bio
-        self.user_info = user_info
+        self.user_info = user_info or {}
         self.global_event = global_event
         self.user_data = None
         self.user_info_template = user_info_template
+        self.round_id = 0
+        self._step_actions: list[ActionTrace] = []
+        self.step_retry_limit = 3
 
-        # Memory to store summaries of actions
-        self.memory: List[str] = []
-
-        # Initialize LangChain components
         self.llm = llm
+        self.static_context = self._build_static_context()
+        self.memory_manager = MemoryManager(
+            username=self.username,
+            static_context=self.static_context,
+            short_term_max_rounds=3,
+            short_term_max_posts=3,
+            event_max_size=50,
+        )
         self.tools = self._create_tools()
-
-        # System Prompt
-        self.system_prompt = self._get_system_prompt()
-
+        self.system_prompt = PromptBuilder.build_system_prompt(self.static_context)
         self.agent = create_agent(
             self.llm, tools=self.tools, system_prompt=self.system_prompt
         )
@@ -61,269 +76,407 @@ class MossAgent:
         )
         logger.info(f"Agent {self.nickname} started. User ID: {self.user_data.id}")
 
-    def _get_system_prompt(self):
-        user_profile = ""
+    def _build_static_context(self) -> StaticContext:
         if self.user_info_template:
-            user_profile += self.user_info_template.format(**self.user_info)
+            profile_text = self.user_info_template.format(**self.user_info)
         else:
-            user_profile += USER_PROFILE_TEMPLATE.format(
-                name=self.nickname, user_profile=self.bio
+            profile_text = USER_PROFILE_TEMPLATE.format(
+                name=self.nickname,
+                user_profile=self.bio,
             )
-        user_profile += CURRENT_EVENT_TEMPLATE.format(
+        global_event_text = CURRENT_EVENT_TEMPLATE.format(
             global_event_description=self.global_event
         )
-        return user_profile
+        return StaticContext(
+            profile_text=profile_text,
+            global_event_text=global_event_text,
+        )
+
+    async def execute_action(
+        self,
+        action_type: str,
+        params: dict[str, Any],
+    ):
+        spec = ACTION_SPEC_BY_NAME.get(action_type)
+        if spec is None:
+            raise ValueError(f"Unknown action type: {action_type}")
+
+        method = getattr(self.platform, spec.platform_method)
+        args = [params.get(arg_name) for arg_name in spec.arg_names]
+        return await method(*args)
 
     def _create_tools(self):
-        """Create tools that wrap platform actions."""
+        """创建平台动作工具。"""
+        tools = []
 
-        @tool
-        async def create_post(content: str):
-            """Create a new post with the given content."""
-            logger.info(f"Agent {self.nickname} is creating a post: {content}")
-            response = await self.platform.create_post(content)
-            return response.model_dump()
+        for spec in ACTION_SPECS:
+            tools.append(self._build_tool_from_spec(spec))
 
-        @tool
-        async def create_comment(post_id: int, content: str):
-            """Create a comment on a post."""
+        return tools
+
+    def _build_tool_from_spec(self, spec: ActionSpec):
+        async def _tool_impl(**kwargs):
+            trace = self._build_action_trace(spec.name, kwargs)
             logger.info(
-                f"Agent {self.nickname} is commenting on post {post_id}: {content}"
+                f"Agent {self.nickname} is executing {spec.name} with params: {kwargs}"
             )
-            response = await self.platform.create_comment(post_id, content)
-            return response.model_dump()
+            try:
+                response = await self.execute_action(spec.name, kwargs)
+                if spec.result_mode == "post_detail":
+                    item = self._build_feed_item_snapshot(response)
+                    comments = []
+                    for comment in response.comments:
+                        comment_author = (
+                            comment.author_nickname or f"User {comment.user_id}"
+                        )
+                        comments.append(
+                            f"- {comment_author}: {comment.content} "
+                            f"(点赞 {comment.like_count}，我已点赞 {comment.is_liked})"
+                        )
+                    trace.message = "已获取帖子详情"
+                    self._append_step_action(trace)
+                    return PromptBuilder.render_post_detail(item, comments)
 
-        @tool
-        async def like_post(post_id: int):
-            """Like a post."""
-            logger.info(f"Agent {self.nickname} is liking post {post_id}")
-            response = await self.platform.like_post(post_id)
-            return response.model_dump()
+                payload = response.model_dump()
+                self._apply_action_result(trace, payload)
+                self._append_step_action(trace)
+                return payload
+            except Exception:
+                trace.status = "error"
+                trace.message = "动作执行失败"
+                self._append_step_action(trace)
+                raise
 
-        @tool
-        async def like_comment(comment_id: int):
-            """Like a comment."""
-            logger.info(f"Agent {self.nickname} is liking comment {comment_id}")
-            response = await self.platform.like_comment(comment_id)
-            return response.model_dump()
-
-        @tool
-        async def repost(post_id: int):
-            """Repost a post. This is a pure share action without adding new content."""
-            logger.info(f"Agent {self.nickname} is reposting post {post_id}")
-            response = await self.platform.repost(post_id)
-            return response.model_dump()
-
-        @tool
-        async def quote(post_id: int, content: str):
-            """Quote a post with content."""
-            logger.info(f"Agent {self.nickname} is quoting post {post_id}")
-            response = await self.platform.quote(post_id, content)
-            return response.model_dump()
-
-        @tool
-        async def do_nothing():
-            """Do nothing for this turn. Use this when you don't want to take any specific action."""
-            logger.info(f"Agent {self.nickname} decided to do nothing")
-            response = await self.platform.do_nothing()
-            return response.model_dump()
-
-        @tool
-        async def get_post(post_id: int):
-            """Get details of a post, including comments."""
-            logger.info(f"Agent {self.nickname} is looking at post {post_id} in detail")
-            post = await self.platform.get_post(post_id)
-
-            author_name = post.author_nickname or f"User {post.user_id}"
-            post_str = f"Post ID: {post.id}\n"
-            post_str += f"Author: {author_name}\n"
-            post_str += f"Time: {post.created_at}\n"
-            post_str += f"Content: {post.content or ''}\n"
-            post_str += f"Stats: Likes: {post.stats.get('like_count', 0)}, Comments: {post.stats.get('reply_count', 0)}, Shares: {post.stats.get('share_count', 0)}\n"
-            post_str += f"My Interaction: Liked: {post.is_liked}, Reposted: {post.is_reposted}\n"
-
-            if post.comments:
-                post_str += "Comments:\n"
-                for comment in post.comments:
-                    comment_author = (
-                        comment.author_nickname or f"User {comment.user_id}"
-                    )
-                    post_str += f"  - {comment_author}: {comment.content} (Likes: {comment.like_count}, Liked by me: {comment.is_liked})\n"
+        schema_fields = {}
+        for arg_name in spec.arg_names:
+            if arg_name in {"post_id", "comment_id"}:
+                schema_fields[arg_name] = (int, ...)
             else:
-                post_str += "Comments: None\n"
+                schema_fields[arg_name] = (str, ...)
+        args_schema = create_model(f"{spec.name.title()}Args", **schema_fields)
 
-            return post_str
+        return StructuredTool.from_function(
+            func=None,
+            coroutine=_tool_impl,
+            name=spec.name,
+            description=spec.description,
+            args_schema=args_schema,
+        )
 
-        return [
-            create_post,
-            create_comment,
-            like_post,
-            like_comment,
-            repost,
-            quote,
-            do_nothing,
-            get_post,
-        ]
+    def _build_feed_item_snapshot(self, post) -> FeedItemSnapshot:
+        return FeedItemSnapshot(
+            post_id=post.id,
+            author_name=post.author_nickname or f"User {post.user_id}",
+            created_at=str(post.created_at),
+            content=post.content or "",
+            post_type=post.type,
+            ref_id=post.ref_id,
+            like_count=post.stats.get("like_count", 0),
+            reply_count=post.stats.get("reply_count", 0),
+            share_count=post.stats.get("share_count", 0),
+            retweet_count=post.stats.get("retweet_count", 0),
+            quote_count=post.stats.get("quote_count", 0),
+            is_liked=post.is_liked,
+            is_reposted=post.is_reposted,
+        )
 
-    async def get_env_info(self) -> Optional[str]:
+    def _reset_step_actions(self) -> None:
+        self._step_actions = []
+
+    def _append_step_action(self, trace: ActionTrace) -> None:
+        self._step_actions.append(trace)
+
+    def _get_step_actions(self) -> list[ActionTrace]:
+        return list(self._step_actions)
+
+    async def get_environment_snapshot(self) -> Optional[EnvironmentSnapshot]:
         try:
             feed = await self.platform.get_feed()
-            # Log seen posts
             post_ids = [p.id for p in feed]
             logger.info(f"Agent {self.nickname} saw posts: {post_ids}")
 
             time_data = await self.platform.get_time()
-            current_time = time_data.get("current_time")
-
-            # Format the feed
-            formatted_feed = []
-            if not feed:
-                formatted_feed.append("No new posts in your feed.")
-            else:
-                for post in feed:
-                    author_name = post.author_nickname or f"User {post.user_id}"
-                    post_str = f"Post ID: {post.id}\n"
-                    post_str += f"Author: {author_name}\n"
-                    post_str += f"Time: {post.created_at}\n"
-                    if post.ref_id:
-                        post_str += f"{post.type} Post ID: {post.ref_id}\n"
-                    post_str += f"Content: {post.content or ''}\n"
-                    post_str += f"Stats: Likes: {post.stats.get('like_count', 0)}, Comments: {post.stats.get('reply_count', 0)}, Shares: {post.stats.get('share_count', 0)}\n"
-                    post_str += f"My Interaction: Liked: {post.is_liked}, Reposted: {post.is_reposted}\n"
-                    formatted_feed.append(post_str)
-
-            feed_str = "\n---\n".join(formatted_feed)
-
-            return f"Current Time: {current_time}\nHere is your feed:\n{feed_str}"
-
+            current_time = str(time_data.get("current_time", ""))
+            feed_items = [self._build_feed_item_snapshot(post) for post in feed]
+            return EnvironmentSnapshot(current_time=current_time, feed_items=feed_items)
         except Exception as e:
             logger.error(f"Failed to get perception: {e}")
             traceback.print_exc()
             return None
 
-    async def step(self):
-        # 1. Perception
-        env_info = await self.get_env_info()
-        if not env_info:
+    def _build_action_trace(
+        self,
+        action_type: str,
+        raw_args: Any,
+    ) -> ActionTrace:
+        args = raw_args if isinstance(raw_args, dict) else {}
+
+        post_id = args.get("post_id")
+        if post_id is None:
+            post_id = args.get("original_post_id")
+
+        comment_id = args.get("comment_id")
+        content = args.get("content", "")
+
+        try:
+            parsed_post_id = int(post_id) if post_id is not None else None
+        except (TypeError, ValueError):
+            parsed_post_id = None
+
+        try:
+            parsed_comment_id = int(comment_id) if comment_id is not None else None
+        except (TypeError, ValueError):
+            parsed_comment_id = None
+
+        normalized_args = args if isinstance(args, dict) else {"raw": raw_args}
+        return ActionTrace(
+            action_type=action_type,
+            post_id=parsed_post_id,
+            comment_id=parsed_comment_id,
+            content=str(content or ""),
+            raw_args=normalized_args,
+        )
+
+    @staticmethod
+    def _parse_optional_int(value: Any) -> Optional[int]:
+        try:
+            return int(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _extract_action_result_payload(self, raw_result: Any) -> dict[str, Any]:
+        if isinstance(raw_result, dict):
+            return raw_result
+
+        payload = extract_json_dict(
+            raw_result,
+            log_prefix=f"Agent {self.nickname} tool result",
+        )
+        return payload if isinstance(payload, dict) else {}
+
+    def _apply_action_result(
+        self,
+        trace: ActionTrace,
+        raw_result: Any,
+        tool_status: str = "",
+    ) -> None:
+        payload = self._extract_action_result_payload(raw_result)
+        if not payload:
+            if trace.action_type == "get_post":
+                trace.message = "已获取帖子详情"
+            elif tool_status:
+                trace.status = tool_status
             return
 
-        # Construct User Message
-        user_msg = f"{env_info}\n\nWhat do you want to do next?"
+        status = payload.get("status") or tool_status
+        if status:
+            trace.status = str(status)
 
-        # Add Long-Term Memory Context
-        memory_context = ""
-        if self.memory:
-            memory_context = (
-                "Here is a summary of your recent actions:\n"
-                + "\n".join(self.memory)
-                + "\n\n"
+        message = payload.get("message")
+        if message:
+            trace.message = str(message)
+
+        result_data = payload.get("data")
+        if isinstance(result_data, dict):
+            trace.result_data = result_data
+        elif result_data is not None:
+            trace.result_data = {"raw": result_data}
+
+        result_post_id = None
+        if isinstance(result_data, dict):
+            result_post_id = result_data.get("post_id")
+        if result_post_id is None:
+            result_post_id = payload.get("post_id")
+        trace.result_post_id = self._parse_optional_int(result_post_id)
+
+    def _collect_actions_from_messages(self, messages: list[Any]) -> list[ActionTrace]:
+        actions: list[ActionTrace] = []
+        trace_by_tool_call_id: dict[str, ActionTrace] = {}
+
+        for msg in messages:
+            tool_calls = getattr(msg, "tool_calls", None) or []
+            for tool_call in tool_calls:
+                trace = self._build_action_trace(
+                    action_type=tool_call["name"],
+                    raw_args=tool_call["args"],
+                )
+                actions.append(trace)
+
+                tool_call_id = tool_call.get("id")
+                if tool_call_id:
+                    trace_by_tool_call_id[str(tool_call_id)] = trace
+
+            tool_call_id = getattr(msg, "tool_call_id", None)
+            if not tool_call_id:
+                continue
+
+            trace = trace_by_tool_call_id.get(str(tool_call_id))
+            if trace is None:
+                continue
+
+            raw_result = getattr(msg, "artifact", None)
+            if raw_result in (None, ""):
+                raw_result = getattr(msg, "content", None)
+            self._apply_action_result(
+                trace=trace,
+                raw_result=raw_result,
+                tool_status=str(getattr(msg, "status", "") or ""),
             )
 
-        full_input = memory_context + user_msg
+        return actions
 
-        logger.info(f"Agent {self.nickname} input: {user_msg}")
+    @staticmethod
+    def _is_valid_decision_payload(payload: Any) -> bool:
+        if not isinstance(payload, dict):
+            return False
 
-        # 2. Decision & Execution
+        required_keys = {"final_output", "state", "event_memory"}
+        if not required_keys.issubset(payload):
+            return False
+
+        return isinstance(payload.get("state"), dict) and isinstance(
+            payload.get("event_memory"), dict
+        )
+
+    def _parse_decision_result(self, raw_content: Any) -> DecisionResultPayload:
+        payload = extract_json_dict(
+            raw_content,
+            log_prefix=f"Agent {self.nickname}",
+        )
+        if not payload:
+            return DecisionResultPayload(
+                final_output=normalize_text_content(raw_content),
+                is_structured=False,
+            )
+
+        if not self._is_valid_decision_payload(payload):
+            logger.warning(
+                f"Agent {self.nickname} 主决策结果缺少必需字段，已按非结构化输出处理。"
+            )
+            return DecisionResultPayload(
+                final_output=normalize_text_content(raw_content),
+                is_structured=False,
+            )
+
         try:
-            # Construct messages
-            messages = [
-                HumanMessage(content=full_input),
-            ]
-
-            result = await self.agent.ainvoke({"messages": messages})
-
-            output = ""
-            actions = []
-
-            # Handle result
-            if isinstance(result, dict) and "messages" in result:
-                final_msgs = result["messages"]
-                if final_msgs:
-                    output = final_msgs[-1].content
-
-                # Extract actions
-                for msg in final_msgs:
-                    if hasattr(msg, "tool_calls") and msg.tool_calls:
-                        for tc in msg.tool_calls:
-                            actions.append(
-                                f"Called tool {tc['name']} with input {tc['args']}"
-                            )
-            else:
-                # Fallback
-                output = str(result.get("output", ""))
-                # Try to get intermediate_steps if present
-                steps = result.get("intermediate_steps", [])
-                for step in steps:
-                    if isinstance(step, tuple):
-                        actions.append(
-                            f"Called tool {step[0].tool} with input {step[0].tool_input}"
-                        )
-
-            # 3. Summarization
-            await self._summarize_and_store_memory(user_msg, actions, output)
-
+            return DecisionResultPayload.model_validate(payload)
         except Exception as e:
-            logger.error(f"Agent step failed: {e}")
-            traceback.print_exc()
+            logger.warning(f"Agent {self.nickname} 主决策结果校验失败：{e}")
+            return DecisionResultPayload(
+                final_output=normalize_text_content(raw_content),
+                is_structured=False,
+            )
 
-    async def _summarize_and_store_memory(self, user_input, actions, output):
-        """Summarize the interaction and update memory."""
+    async def step(self):
+        self.round_id += 1
+        last_error: Optional[Exception] = None
+        snapshot: Optional[EnvironmentSnapshot] = None
 
-        actions_str = "; ".join(actions) if actions else "No tools called"
+        for attempt in range(1, self.step_retry_limit + 1):
+            if snapshot is None:
+                snapshot = await self.get_environment_snapshot()
+                if not snapshot:
+                    last_error = RuntimeError(
+                        f"Agent {self.nickname} 获取环境信息失败（第 {attempt} 次尝试）"
+                    )
+                    logger.error(str(last_error))
+                    if attempt >= self.step_retry_limit:
+                        raise last_error
+                    continue
+                logger.info(
+                    f"Agent {self.nickname} 已冻结本轮环境快照，后续重试将复用这份快照。"
+                )
+            elif attempt > 1:
+                logger.info(
+                    f"Agent {self.nickname} 第 {attempt} 次尝试复用首次获取的环境快照。"
+                )
 
-        # Create a summary using the LLM
-        summary_prompt = f"""
-        As the agent itself, summarize your own interaction memory into a single concise first-person sentence that clearly includes: the time of the event, the reason why you took the corresponding actions, and the specific things/actions you did.
-
-        Your Input Context: {user_input}.
-        Actions You Took: {actions_str}
-        Your Output/Thought: {output}
-
-        Summary:
-        """
-
-        try:
-            summary_response = await self.llm.ainvoke(summary_prompt)
-            summary = summary_response.content.strip()
-
-            logger.info(f"anget {self.nickname} Interaction Summary: {summary}")
-            self.memory.append(summary)
-
-            # Prune memory if too long
-            if len(self.memory) > 10:
-                await self._prune_memory()
-
-        except Exception as e:
-            logger.error(f"Failed to summarize: {e}")
-
-    async def _prune_memory(self):
-        """Summarize the memory list when it gets too long."""
-        old_memory = "\n".join(self.memory)
-        prune_prompt = f"""
-        The following is a list of your past action memories.
-        Please summarize them from your own perspective into a short paragraph (max 3 sentences) to serve as your long-term context.
-
-        Your memories:
-        {old_memory}
-
-        Summary:
-        """
-        try:
-            response = await self.llm.ainvoke(prune_prompt)
-            condensed_memory = response.content.strip()
-            self.memory = [condensed_memory]
+            self._reset_step_actions()
+            relevant_events = self.memory_manager.select_relevant_events(snapshot)
+            full_input = PromptBuilder.build_runtime_context(
+                context=self.memory_manager.context,
+                snapshot=snapshot,
+                relevant_events=relevant_events,
+            )
             logger.info(
-                f"""agent {self.nickname} Memory pruned and summarized.\n{condensed_memory}"""
+                f"Agent {self.nickname} input (attempt {attempt}/{self.step_retry_limit}): {full_input}"
             )
-        except Exception as e:
-            logger.error(f"Failed to prune memory: {e}")
+
+            short_term_recorded = False
+            try:
+                messages = [HumanMessage(content=full_input)]
+                result = await self.agent.ainvoke({"messages": messages})
+
+                decision_result = DecisionResultPayload()
+
+                if isinstance(result, dict) and "messages" in result:
+                    final_msgs = result["messages"]
+                    if final_msgs:
+                        decision_result = self._parse_decision_result(
+                            final_msgs[-1].content
+                        )
+                else:
+                    decision_result = self._parse_decision_result(
+                        result.get("output", "")
+                    )
+
+                actions = self._get_step_actions()
+                self.memory_manager.record_step(
+                    round_id=self.round_id,
+                    snapshot=snapshot,
+                    actions=actions,
+                    output=decision_result.final_output,
+                )
+                short_term_recorded = True
+                self.memory_manager.apply_decision_result(
+                    snapshot=snapshot,
+                    decision_result=decision_result,
+                )
+
+                if attempt > 1:
+                    logger.info(
+                        f"Agent {self.nickname} 在第 {attempt} 次尝试时完成本轮执行。"
+                    )
+                return
+            except Exception as e:
+                last_error = e
+                logger.error(
+                    f"Agent {self.nickname} 第 {attempt} 次 step 尝试失败：{e}"
+                )
+                traceback.print_exc()
+                actions = self._get_step_actions()
+                if actions and not short_term_recorded:
+                    try:
+                        self.memory_manager.record_step(
+                            round_id=self.round_id,
+                            snapshot=snapshot,
+                            actions=actions,
+                            output=f"本轮第 {attempt} 次尝试在后处理中断",
+                        )
+                    except Exception as memory_error:
+                        logger.error(
+                            f"Agent {self.nickname} 记录部分成功动作失败：{memory_error}"
+                        )
+                        traceback.print_exc()
+
+                if attempt >= self.step_retry_limit:
+                    raise
+
+                logger.warning(
+                    f"Agent {self.nickname} 将基于当前记忆进行第 {attempt + 1} 次重试。"
+                )
+            finally:
+                self._reset_step_actions()
+
+        if last_error is not None:
+            raise last_error
 
 
 if __name__ == "__main__":
-    import logging
-    import sys
     import asyncio
+    import logging
     import os
+    import sys
 
     logging.basicConfig(
         level=logging.INFO,
@@ -331,11 +484,8 @@ if __name__ == "__main__":
         handlers=[logging.StreamHandler(sys.stdout)],
     )
     httpx_logger = logging.getLogger("httpx")
-    # 设置日志级别为WARNING（只输出WARNING及以上级别的日志）
-    # 也可以设置为ERROR，只输出错误日志
     httpx_logger.setLevel(logging.ERROR)
 
-    # Test run
     username = "test_agent_1"
     nickname = "Test Agent"
     event = "A new AI model has been released."
@@ -360,8 +510,7 @@ if __name__ == "__main__":
         asyncio.run(agent.start())
         for _ in range(2):
             asyncio.run(agent.step())
-
-            time.sleep(1)  # Loop
+            time.sleep(1)
     except Exception as e:
         print(f"Agent run failed: {e}")
     except KeyboardInterrupt:

@@ -89,29 +89,13 @@ class AgentGraph:
         """
         logger.info(f"Executing action '{action_type}' for agent {agent.nickname}")
         try:
-            if action_type == "create_post":
-                return await agent.platform.create_post(params.get("content"))
-            elif action_type == "create_comment":
-                return await agent.platform.create_comment(
-                    params.get("post_id"), params.get("content")
-                )
-            elif action_type == "like_post":
-                return await agent.platform.like_post(params.get("post_id"))
-            elif action_type == "repost":
-                return await agent.platform.repost(
-                    params.get("post_id")
-                )
-            elif action_type == "quote":
-                return await agent.platform.quote(
-                    params.get("post_id"), params.get("content")
-                )
-            elif action_type == "like_comment":
-                return await agent.platform.like_comment(params.get("comment_id"))
-            elif action_type == "do_nothing":
-                return await agent.platform.do_nothing()
-            else:
-                logger.warning(f"Unknown action type: {action_type}")
-                return None
+            result = await agent.execute_action(action_type, params)
+            if hasattr(result, "model_dump"):
+                return result
+            return None
+        except ValueError:
+            logger.warning(f"Unknown action type: {action_type}")
+            return None
         except Exception as e:
             logger.error(
                 f"Failed to execute action '{action_type}' for agent {agent.nickname}: {e}"
@@ -168,12 +152,33 @@ class AgentGraph:
 
         tasks = [agent.start() for agent in self._agents]
         results = await asyncio.gather(*tasks, return_exceptions=True)
+        started_agents: List[MossAgent] = []
+        failed_agent_names: List[str] = []
 
         for i, result in enumerate(results):
+            agent = self._agents[i]
             if isinstance(result, Exception):
                 logger.error(
-                    f"Error starting agent {self._agents[i].nickname}: {result}"
+                    f"Error starting agent {agent.nickname}: {result}"
                 )
+                failed_agent_names.append(agent.nickname)
+                continue
+
+            if agent.user_data is None:
+                logger.error(f"Agent {agent.nickname} 启动后仍未完成登录，已跳过。")
+                failed_agent_names.append(agent.nickname)
+                continue
+
+            started_agents.append(agent)
+
+        self._agents = started_agents
+
+        if failed_agent_names:
+            failed_names = "、".join(failed_agent_names)
+            raise RuntimeError(
+                f"以下 agent 启动失败或未完成登录：{failed_names}。"
+                "为避免实验结果失真，已终止本次运行。"
+            )
 
         logger.info("All agents started.")
 
@@ -187,12 +192,23 @@ class AgentGraph:
 
         tasks = [agent.step() for agent in self._agents]
         results = await asyncio.gather(*tasks, return_exceptions=True)
+        failures = []
 
         for i, result in enumerate(results):
             if isinstance(result, Exception):
+                failures.append((self._agents[i].nickname, result))
                 logger.error(
                     f"Error during agent {self._agents[i].nickname} step: {result}"
                 )
+
+        if failures:
+            failure_messages = [
+                f"{nickname}: {error}" for nickname, error in failures
+            ]
+            raise RuntimeError(
+                "以下 agent 在本轮执行失败，实验已中止以避免重复执行副作用动作："
+                + "；".join(failure_messages)
+            ) from failures[0][1]
 
         logger.info("Step execution completed.")
 
@@ -218,6 +234,10 @@ class AgentGraph:
                 logger.warning(f"Failed to load system config: {e}")
 
             await self.start_all()
+            if not self._agents:
+                logger.warning("没有可运行的 agent，终止执行循环。")
+                return
+
             for _ in range(round):
                 start_time = time.time()
                 await self.step_all()
@@ -238,6 +258,7 @@ class AgentGraph:
             logger.info("Agent loop stopped by user.")
         except Exception as e:
             logger.error(f"Agent loop failed: {e}")
+            raise
         finally:
             await self.platform.close()
 

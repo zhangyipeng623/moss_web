@@ -70,7 +70,10 @@ class RemotePlatform:
         return resp.json()
 
     async def get_post(self, post_id: int) -> PostResponse:
-        resp = await self.client.get(f"/api/v1/posts/{post_id}")
+        params = None
+        if self.user_data is not None:
+            params = {"user_id": self.user_data.id}
+        resp = await self.client.get(f"/api/v1/posts/{post_id}", params=params)
         resp.raise_for_status()
         return PostResponse(**resp.json())
 
