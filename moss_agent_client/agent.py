@@ -22,8 +22,46 @@ from moss_agent_client.prompt_builder import PromptBuilder
 from moss_agent_client.remote_platform import RemotePlatform
 from moss_agent_client.utils import extract_json_dict, normalize_text_content
 
-USER_PROFILE_TEMPLATE = """你现在需要扮演 {name}，一个社交网络上的用户。
-{user_profile}"""
+FIXED_USER_INFO_TEMPLATE = """你现在需要扮演 {name}，一个社交网络上的用户。
+
+[身份概述]
+{identity_summary}
+
+[长期兴趣]
+{interest_summary}
+
+[价值与立场]
+{value_summary}
+
+[表达风格]
+{style_summary}
+
+[行为偏好]
+{behavior_summary}
+
+[互动规则]
+{interaction_summary}
+
+[表达要求]
+{speaking_rules_text}
+
+[行动要求]
+{action_rules_text}
+
+[避免事项]
+{avoidance_rules_text}"""
+
+FIXED_USER_INFO_FIELDS = (
+    "identity_summary",
+    "interest_summary",
+    "value_summary",
+    "style_summary",
+    "behavior_summary",
+    "interaction_summary",
+    "speaking_rules_text",
+    "action_rules_text",
+    "avoidance_rules_text",
+)
 
 CURRENT_EVENT_TEMPLATE = """[全局事件]
 当前世界关注的核心事件如下：
@@ -72,17 +110,32 @@ class MossAgent:
 
     async def start(self):
         self.user_data = await self.platform.register_or_login(
-            self.username, self.nickname, self.bio
+            self.username, self.nickname, self.bio, self.user_info
         )
         logger.info(f"Agent {self.nickname} started. User ID: {self.user_data.id}")
 
     def _build_static_context(self) -> StaticContext:
         if self.user_info_template:
-            profile_text = self.user_info_template.format(**self.user_info)
+            try:
+                profile_text = self.user_info_template.format(**self.user_info)
+            except KeyError as exc:
+                missing_key = str(exc.args[0])
+                raise ValueError(
+                    f"Agent {self.username} 的 user_info_template 缺少字段：{missing_key}"
+                ) from exc
         else:
-            profile_text = USER_PROFILE_TEMPLATE.format(
-                name=self.nickname,
-                user_profile=self.bio,
+            missing_fields = [
+                field_name
+                for field_name in FIXED_USER_INFO_FIELDS
+                if field_name not in self.user_info
+            ]
+            if missing_fields:
+                raise ValueError(
+                    f"Agent {self.username} 的固定画像模板缺少字段：{', '.join(missing_fields)}"
+                )
+            profile_text = FIXED_USER_INFO_TEMPLATE.format(
+                **self.user_info,
+                name=self.user_info.get("name") or self.nickname,
             )
         global_event_text = CURRENT_EVENT_TEMPLATE.format(
             global_event_description=self.global_event

@@ -17,6 +17,7 @@ MOSS Web 是一个面向舆情模拟推演的实验项目。系统通过 FastAPI
 - `moss_agent_client/`：Agent 执行逻辑、平台访问封装与多智能体调度。
 - `frontend/`：前端源码目录，开发态通过 Vite 运行，生产态构建到 `backend/static/`。
 - `configs/experiments/`：实验配置文件目录。
+- `configs/experiments/*.csv`：可选的 Agent 批量配置文件，用于从 CSV 构建 AgentGraph。
 - `runs/`：每次实验的归档目录，默认不纳入版本控制。
 
 ## 环境要求
@@ -48,9 +49,40 @@ MOSS Web 是一个面向舆情模拟推演的实验项目。系统通过 FastAPI
 - 模型配置
 - 系统时间配置
 - 运行轮数、轮间隔、随机种子
-- Agent 列表与角色画像
+- 用户画像生成配置
+- Agent 列表或 `agents_csv` 批量配置
+
+当前支持两种 Agent 配置方式：
+
+- 直接在 JSON 中写 `agents`
+- 在 JSON 中配置 `agents_csv`，从 CSV 批量读取 Agent
+
+当前推荐优先使用 `agents_csv`。
+
+CSV 常用列如下：
+
+- `username`：Agent 用户名
+- `name`：Agent 显示名
+- `bio`：兜底简介
+- `profile_mode`：`default`、`custom`
+- `profile_path`：画像 JSON 文件路径
+- `user_info_template`：自定义模板内容，仅 `custom` 模式使用
+- `user_info_template_path`：模板文件路径，仅 `custom` 模式使用
+- `user_info_json`：可选，内联画像 JSON
+- `profile_text`：可选，通常配合 `custom` 模式和自定义模板使用
 
 如果需要新场景，建议直接复制默认配置，修改后作为新的实验配置文件使用。
+
+## 用户画像方案
+
+系统现在推荐两种画像注入方式：
+
+- 固定模板模式：如果你已经有结构化画像 JSON，或者先通过离线脚本生成了画像 JSON，可以直接使用 `profile_mode=default`，Agent 会使用内置固定模板注入。
+- 自定义模板模式：如果你已有自己的画像字段和模板，可以使用 `profile_mode=custom`，并显式提供 `user_info_template` 或 `user_info_template_path`。
+
+离线画像遵循“证据抽取 -> 稳定画像 -> 行为画像 -> 主人格摘要 -> 模拟初始化”的多阶段流程。
+
+更具体的输入 JSON 结构、命令示例和产物使用方式，见 [analysis/README.md](/Users/zhangyipeng/ZYPRoom/cuc/project/moss_web/analysis/README.md)。
 
 ## 运行流程
 

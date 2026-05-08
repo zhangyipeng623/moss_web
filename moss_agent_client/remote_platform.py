@@ -21,11 +21,20 @@ class RemotePlatform:
         await self.client.aclose()
 
     async def register_or_login(
-        self, username: str, nickname: str, bio: str
+        self,
+        username: str,
+        nickname: str,
+        bio: str,
+        user_info: Optional[Dict[str, Any]] = None,
     ) -> UserResponse:
         resp = await self.client.post(
             "/api/v1/login",
-            json={"username": username, "nickname": nickname, "bio": bio},
+            json={
+                "username": username,
+                "nickname": nickname,
+                "bio": bio,
+                "user_info": user_info or {},
+            },
         )
         resp.raise_for_status()
         self.user_data = UserResponse(**resp.json())

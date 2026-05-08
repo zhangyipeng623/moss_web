@@ -105,13 +105,14 @@ def start_backend(run_context: RunContext, experiment_data: dict):
     )
 
 
-def start_agent(run_context: RunContext, experiment_data: dict):
+def start_agent(run_context: RunContext, experiment_data: dict, config_path: str):
     """启动 Agent 服务"""
     experiment = ExperimentConfig.model_validate(experiment_data)
     from moss_agent_client.remote_platform import RemotePlatform
     from langchain_openai import ChatOpenAI
     from moss_agent_client.schemas import SystemTimeConfig
     from moss_agent_client.agent_graph import AgentGraph
+    from core.agent_profile_resolver import resolve_agent_payloads
 
     export_run_context(run_context)
     configure_logging(run_context.agent_log_path, "moss.agent", console_enabled=True)
@@ -131,22 +132,24 @@ def start_agent(run_context: RunContext, experiment_data: dict):
         start_time=datetime.fromisoformat(experiment.system_time.start_time),
         time_scale=experiment.system_time.time_scale,
     )
-    graph = AgentGraph(
-        platform,
-        global_event=experiment.global_event,
-        llm=llm,
-        system_time_config=system_time_config,
-    )
-
-    graph.load_from_config(
-        [agent.model_dump() for agent in experiment.agents]
-    )
-    asyncio.run(
-        graph.run_loop(
+    async def _run() -> None:
+        graph = AgentGraph(
+            platform,
+            global_event=experiment.global_event,
+            llm=llm,
+            system_time_config=system_time_config,
+        )
+        agent_payloads = await resolve_agent_payloads(
+            experiment=experiment,
+            config_path=config_path,
+        )
+        graph.load_from_config(agent_payloads)
+        await graph.run_loop(
             round=experiment.runtime.rounds,
             interval=experiment.runtime.interval_seconds,
         )
-    )
+
+    asyncio.run(_run())
 
 
 def parse_args():
@@ -178,7 +181,7 @@ def main():
     )
     agent_process = multiprocessing.Process(
         target=start_agent,
-        args=(run_context, experiment.model_dump()),
+        args=(run_context, experiment.model_dump(), str(Path(args.config).resolve())),
         name="Agent",
     )
 

@@ -62,7 +62,10 @@ async def login(user_in: UserCreate):
 
     # Register
     new_user = await users.create_user(
-        user_in.username, user_in.nickname, user_in.bio
+        user_in.username,
+        user_in.nickname,
+        user_in.bio,
+        user_in.user_info,
     )
     return new_user
 
