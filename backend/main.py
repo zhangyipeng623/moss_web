@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 from fastapi import FastAPI, HTTPException
@@ -8,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.dao.database import init_db
 from backend.routers.api import router
 from backend.services.logger_service import logger
+from backend.services.social_recsys import recsys
 
 
 
@@ -16,9 +18,12 @@ def create_app():
     # 定义lifespan函数（核心替换点）
     async def lifespan(app: FastAPI):
         # --- 启动逻辑（替代原@app.on_event("startup")）---
-        logger.info("应用启动：初始化数据库连接、加载配置等")
-        # 这里写你的启动代码，比如：
-        await init_db()
+        logger.info("应用启动：加载推荐系统（含嵌入模型）、初始化数据库...")
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, lambda: recsys.model)
+        embedding_dim = recsys.model.get_sentence_embedding_dimension()
+        logger.info(f"推荐系统已就绪，向量维度：{embedding_dim}")
+        await init_db(embedding_dim=embedding_dim)
         yield  # 关键：yield之前是启动逻辑，之后是关闭逻辑，中间是应用运行阶段
 
         # --- 关闭逻辑（替代原@app.on_event("shutdown")）---

@@ -46,7 +46,7 @@ class SocialRecSys:
         async with get_db_connection() as db:
             try:
                 await db.execute(
-                    "INSERT INTO posts_vss(rowid, content_embedding) VALUES (?, ?)",
+                    "INSERT INTO posts_vec(rowid, content_embedding) VALUES (?, ?)",
                     (post_id, embedding_json),
                 )
                 await db.commit()
@@ -70,12 +70,12 @@ class SocialRecSys:
 
             # 2. Candidate Generation
             if user_bio:
-                # Check if there are any vectors in the VSS table to avoid crash
-                async with db.execute("SELECT count(*) FROM posts_vss") as cursor:
+                # Check if there are any vectors in the vec table to avoid crash
+                async with db.execute("SELECT count(*) FROM posts_vec") as cursor:
                     row = await cursor.fetchone()
-                    vss_count = row[0]
+                    vec_count = row[0]
 
-                if vss_count > 0:
+                if vec_count > 0:
                     # Vector Search
                     loop = asyncio.get_running_loop()
                     # Use a lambda to pass show_progress_bar
@@ -85,23 +85,23 @@ class SocialRecSys:
                     )
                     user_embedding_json = json.dumps(user_embedding.tolist())
 
-                    # Search top 100 similar posts using sqlite-vss
-                    # Note: vss_search takes the vector JSON
+                    # Search top 100 similar posts using sqlite-vec
                     try:
                         async with db.execute(
                             """
-                            SELECT rowid, distance 
-                            FROM posts_vss 
-                            WHERE vss_search(content_embedding, ?)
+                            SELECT rowid, distance
+                            FROM posts_vec
+                            WHERE content_embedding MATCH ?
+                            ORDER BY distance
                             LIMIT 100
                         """,
                             (user_embedding_json,),
                         ) as cursor:
-                            vss_results = await cursor.fetchall()
+                            vec_results = await cursor.fetchall()
 
-                        if vss_results:
-                            post_ids = [row[0] for row in vss_results]
-                            distances = {row[0]: row[1] for row in vss_results}
+                        if vec_results:
+                            post_ids = [row[0] for row in vec_results]
+                            distances = {row[0]: row[1] for row in vec_results}
 
                             # Fetch full post data for these IDs
                             placeholders = ",".join("?" * len(post_ids))

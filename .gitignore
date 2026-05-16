@@ -1,17 +1,52 @@
-.trae
-.venv
-.pytest_cache/
-.mypy_cache/
-.idea/
-data
-*.db
-*.log
-.DS_Store
-*/__pycache__/
+# ===== Python =====
+.venv/
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+htmlcov/
+
+# ===== 环境变量 =====
 .env
+analysis/.env
+*.env
+!.env.example
+!analysis/.env.example
+
+# ===== IDE / 编辑器 =====
+.idea/
+.vscode/
+.trae/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ===== 项目数据（本地） =====
+data/
+*.db
+*.log
+*.pid
+
+# ===== 实验产出 =====
+runs/
+analysis_outputs/
+
+# ===== 前端 =====
 frontend/node_modules/
 frontend/dist/
-runs/
+
+# ===== Claude Code =====
+.claude/
+
+# ===== 临时文件 =====
 test.py
+*.tmp

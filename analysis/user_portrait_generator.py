@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -497,13 +498,21 @@ class UserPortraitGenerator:
         context: PortraitGenerationContext,
         llm_callable: LlmCallable,
     ) -> EvidencePack:
-        """阶段 A：分块抽取证据包。"""
-        chunk_observations: List[ChunkObservation] = []
-        for chunk_index, chunk_posts in enumerate(context.evidence_chunks, start=1):
+        """阶段 A：并行分块抽取证据包。"""
+
+        async def _process_chunk(chunk_index: int, chunk_posts: Sequence[EvidencePost]) -> ChunkObservation:
             raw_output = await llm_callable(
                 self.build_chunk_system_prompt(),
                 self.build_chunk_user_prompt(context, chunk_index, chunk_posts),
             )
+            for field in (
+                "value_signals",
+                "style_observations",
+                "behavior_signals",
+                "demographic_hints",
+                "unknown_fields",
+            ):
+                self._sanitize_string_array_field(raw_output, field)
             observation = self._validate_stage_output(
                 raw_output,
                 ChunkObservation,
@@ -511,7 +520,13 @@ class UserPortraitGenerator:
             )
             if observation.chunk_id <= 0:
                 observation.chunk_id = chunk_index
-            chunk_observations.append(observation)
+            return observation
+
+        chunk_tasks = [
+            _process_chunk(chunk_index, chunk_posts)
+            for chunk_index, chunk_posts in enumerate(context.evidence_chunks, start=1)
+        ]
+        chunk_observations = await asyncio.gather(*chunk_tasks)
 
         topic_map: Dict[str, TopicSignal] = {}
         style_examples: List[str] = []
@@ -743,34 +758,78 @@ class UserPortraitGenerator:
         simulation_init.focus_topics = self._dedupe_strings(simulation_init.focus_topics)[:6]
         return simulation_init
 
+    async def _retry_stage(
+        self,
+        stage_name: str,
+        coro_func: Any,
+        *args: Any,
+        max_attempts: int = 3,
+        **kwargs: Any,
+    ) -> Any:
+        """阶段级重试：单阶段失败时只重试本阶段，不回退 pipeline。"""
+        last_error = ""
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return await coro_func(*args, **kwargs)
+            except PortraitGenerationError:
+                raise
+            except Exception as exc:
+                last_error = str(exc)
+                if attempt < max_attempts:
+                    logger.warning(
+                        "%s 第 %d/%d 次失败，重试中：%s",
+                        stage_name,
+                        attempt,
+                        max_attempts,
+                        last_error,
+                    )
+        raise PortraitGenerationError(
+            stage_name,
+            f"连续 {max_attempts} 次失败：{last_error}",
+        )
+
     async def run_pipeline(
         self,
         source: UserProfileSource,
         llm_callable: LlmCallable,
         global_event: str = "",
     ) -> SimulationUserProfile:
-        """执行完整画像流水线。"""
+        """执行完整画像流水线（每阶段独立重试）。"""
         context = self.prepare_generation_context(source)
-        evidence_pack = await self.generate_evidence_pack(context, llm_callable)
-        stable_profile = await self.generate_stable_profile(
+
+        evidence_pack = await self._retry_stage(
+            "generate_evidence_pack",
+            self.generate_evidence_pack,
+            context,
+            llm_callable,
+        )
+        stable_profile = await self._retry_stage(
+            "generate_stable_profile",
+            self.generate_stable_profile,
             context,
             evidence_pack,
             llm_callable,
         )
-        behavior_profile = await self.generate_behavior_profile(
+        behavior_profile = await self._retry_stage(
+            "generate_behavior_profile",
+            self.generate_behavior_profile,
             context,
             evidence_pack,
             stable_profile,
             llm_callable,
         )
-        agent_profile = await self.generate_agent_profile(
+        agent_profile = await self._retry_stage(
+            "generate_agent_profile",
+            self.generate_agent_profile,
             context,
             evidence_pack,
             stable_profile,
             behavior_profile,
             llm_callable,
         )
-        simulation_init = await self.generate_simulation_init(
+        simulation_init = await self._retry_stage(
+            "generate_simulation_init",
+            self.generate_simulation_init,
             context,
             stable_profile,
             behavior_profile,
@@ -843,6 +902,16 @@ class UserPortraitGenerator:
                 "若无证据，请输出 unknown 或空列表。",
                 "输出必须是合法 JSON，所有说明使用中文简体。",
                 "用户关注话题需要根据历史发帖内容自行归纳，不要从预设主题列表中挑选。",
+                "",
+                "【类型约束 - 必须严格遵守】",
+                "topic_candidates 是对象数组，每个元素包含 topic/confidence/evidence_ids。",
+                "以下字段必须是一维字符串数组（string[]），每个元素是纯文本字符串，绝对不能是对象：",
+                "  - value_signals: 如 [\"倾向自由主义价值观\", \"关注社会公平\"]",
+                "  - style_observations: 如 [\"语气直接犀利\", \"偏好使用反问句\"]",
+                "  - behavior_signals: 如 [\"高强度使用转发功能\", \"深夜时段活跃\"]",
+                "  - demographic_hints: 如 [\"可能位于沿海城市\", \"疑似男性用户\"]",
+                "  - unknown_fields: 字符串数组",
+                "  - representative_evidence_ids: 字符串数组",
             ]
         )
 
@@ -863,14 +932,14 @@ class UserPortraitGenerator:
             "output_schema": {
                 "chunk_id": chunk_index,
                 "topic_candidates": [
-                    {"topic": "", "confidence": 0.0, "evidence_ids": []}
+                    {"topic": "string", "confidence": 0.0, "evidence_ids": ["string"]}
                 ],
-                "value_signals": [],
-                "style_observations": [],
-                "behavior_signals": [],
-                "demographic_hints": [],
-                "unknown_fields": [],
-                "representative_evidence_ids": [],
+                "value_signals": ["string（纯文本）"],
+                "style_observations": ["string（纯文本）"],
+                "behavior_signals": ["string（纯文本）"],
+                "demographic_hints": ["string（纯文本）"],
+                "unknown_fields": ["string"],
+                "representative_evidence_ids": ["string"],
             },
         }
         return "\n".join(
@@ -1450,6 +1519,40 @@ class UserPortraitGenerator:
             return model.model_validate(payload)
         except Exception as exc:  # noqa: BLE001
             raise PortraitGenerationError(stage_name, f"结构化输出校验失败：{exc}") from exc
+
+    @staticmethod
+    def _sanitize_string_array_field(payload: Dict[str, Any], field: str) -> None:
+        """兜底容错：将对象数组字段降级为字符串数组。
+
+        当 LLM 误将 string[] 字段输出为 [{signal: ..., evidence_ids: [...]}, ...]
+        时，自动提取每个对象的第一个文本值作为字符串。
+        """
+        values = payload.get(field)
+        if not isinstance(values, list):
+            return
+        sanitized: list[str] = []
+        for item in values:
+            if isinstance(item, str):
+                sanitized.append(item)
+            elif isinstance(item, dict):
+                # 尝试常见字段名提取文本
+                text = (
+                    item.get("signal")
+                    or item.get("observation")
+                    or item.get("hint")
+                    or item.get("value")
+                    or item.get("text")
+                    or ""
+                )
+                if text and isinstance(text, str):
+                    sanitized.append(text)
+                else:
+                    # 如果找不到文本字段，退还第一个非空字符串值
+                    for v in item.values():
+                        if isinstance(v, str) and v.strip():
+                            sanitized.append(v.strip())
+                            break
+        payload[field] = sanitized
 
     def _compute_post_influence(self, post: UserPost) -> float:
         """计算单条帖子的影响力。"""

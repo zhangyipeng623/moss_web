@@ -26,7 +26,17 @@ PORTRAIT_USER_SUPPORTED_COLUMNS = (
     "创建时间戳",
     "头像链接",
 )
-PORTRAIT_USER_REQUIRED_COLUMNS = PORTRAIT_USER_SUPPORTED_COLUMNS
+PORTRAIT_USER_REQUIRED_COLUMNS = (
+    "用户名",
+    "昵称",
+    "简介",
+    "性别",
+    "地域",
+    "关注",
+    "粉丝",
+    "收藏",
+    "创建时间戳",
+)
 PORTRAIT_POST_SUPPORTED_COLUMNS = (
     "用户名",
     "发文内容",
@@ -62,7 +72,7 @@ def parse_args() -> argparse.Namespace:
     )
     portrait_parser.add_argument(
         "--user-name",
-        help="目标用户名，使用 Excel 数据目录模式时必填",
+        help="目标用户名，单用户模式必填；使用 --batch 批量模式时无需提供",
     )
     portrait_parser.add_argument(
         "--user-file",
@@ -76,7 +86,10 @@ def parse_args() -> argparse.Namespace:
     )
     portrait_parser.add_argument(
         "--output",
-        help="画像输出 JSON 路径，默认写入 analysis_outputs/portraits/<user_name>.json",
+        help=(
+            "单用户模式：画像输出 JSON 路径，默认 analysis_outputs/portraits/<user_name>.json；"
+            "批量模式：画像输出目录，默认 analysis_outputs/portraits/"
+        ),
     )
     portrait_parser.add_argument(
         "--reference-time",
@@ -85,7 +98,11 @@ def parse_args() -> argparse.Namespace:
             "若不带时区，默认按 Asia/Shanghai 解析，例如 2026-04-01 12:00:00"
         ),
     )
-    portrait_parser.add_argument("--model", default="gpt-4o", help="模型名称")
+    portrait_parser.add_argument(
+        "--model",
+        default=os.environ.get("MODEL", "gpt-4o"),
+        help="模型名称，默认读取环境变量 MODEL",
+    )
     portrait_parser.add_argument("--timeout", type=int, default=180, help="模型调用超时时间")
     portrait_parser.add_argument(
         "--api-key-env",
@@ -96,6 +113,18 @@ def parse_args() -> argparse.Namespace:
         "--base-url-env",
         default="BASE_URL",
         help="读取模型服务地址的环境变量名",
+    )
+    portrait_parser.add_argument(
+        "--batch",
+        action="store_true",
+        help="批量模式：自动读取 user.xlsx 中全部用户并依次生成画像，此时 --user-name 无需提供",
+    )
+
+    retier_parser = subparsers.add_parser("retier", help="对已有画像 JSON 重新按影响力分级")
+    retier_parser.add_argument(
+        "--portraits-dir",
+        required=True,
+        help="存放画像 JSON 文件的目录路径",
     )
 
     recommender_parser = subparsers.add_parser("recommender", help="反推推荐参数")
@@ -219,6 +248,8 @@ async def run_portrait_command(args: argparse.Namespace) -> None:
                 llm_callable=llm_callable,
                 global_event=global_event,
             )
+            profile["influence_tier"] = 3
+            profile["influence_tier_label"] = "活跃参与者（默认）"
             _write_json(output_path, profile)
             print(
                 f"用户画像已写入：{output_path}；参考时间：{reference_time_text}；"
@@ -244,6 +275,283 @@ async def run_portrait_command(args: argparse.Namespace) -> None:
     raise RuntimeError(
         f"用户 {source.user_name} 连续 {max_attempts} 次画像生成失败，"
         f"未输出画像文件。失败名单已写入：{failure_report_path}"
+    )
+
+
+async def run_portrait_batch_command(args: argparse.Namespace) -> None:
+    """批量生成全部用户画像，并按影响力自动分 3/4/5 级。"""
+    from langchain_openai import ChatOpenAI
+
+    from analysis.user_portrait_generator import PortraitGenerationError, UserPortraitGenerator
+
+    data_path = Path(args.data_path).resolve()
+    all_usernames = _extract_all_usernames(data_path, args.user_file)
+
+    reference_timestamp, reference_time_text = _resolve_portrait_reference_time(
+        args.reference_time
+    )
+
+    output_dir = (
+        Path(args.output).resolve()
+        if args.output
+        else Path("analysis_outputs/portraits").resolve()
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    api_key = os.environ.get(args.api_key_env)
+    if not api_key:
+        raise ValueError(f"环境变量 {args.api_key_env} 未设置，无法调用画像生成模型。")
+
+    generator = UserPortraitGenerator(reference_timestamp=reference_timestamp)
+
+    # ----------------------------------------------------------------
+    # Phase 1: 预计算所有用户的 account_influence（不调 LLM）
+    # ----------------------------------------------------------------
+    user_records: list[dict[str, Any]] = []
+    phase1_failed: list[dict[str, str]] = []
+
+    print(f"阶段 1/2：预计算影响力分数，共 {len(all_usernames)} 个用户 ...\n")
+    for username in all_usernames:
+        try:
+            source, _ = _build_portrait_source_from_excel(
+                data_path=data_path,
+                user_name=username,
+                user_file=args.user_file,
+                post_file=args.post_file,
+            )
+        except Exception as exc:
+            phase1_failed.append(
+                {
+                    "user_name": username,
+                    "reference_time": reference_time_text,
+                    "error_message": str(exc),
+                }
+            )
+            continue
+        stats = generator.analyze_stats(source)
+        user_records.append(
+            {
+                "username": username,
+                "canonical_name": source.user_name,
+                "source": source,
+                "account_influence": stats.account_influence,
+                "fans_count": stats.fans_count,
+                "post_count": stats.post_count,
+            }
+        )
+
+    if not user_records:
+        raise RuntimeError("没有可用用户数据，无法进行批量画像生成。")
+
+    # ----------------------------------------------------------------
+    # Phase 2: 按分位数切分 3/4/5 级（P60 / P90）
+    # ----------------------------------------------------------------
+    sorted_records = sorted(user_records, key=lambda r: r["account_influence"])
+    n = len(sorted_records)
+    p60_threshold = sorted_records[int(n * 0.60)]["account_influence"] if n >= 5 else 0
+    p90_threshold = sorted_records[int(n * 0.90)]["account_influence"] if n >= 5 else float("inf")
+
+    tier_counts: dict[int, int] = {3: 0, 4: 0, 5: 0}
+    for record in sorted_records:
+        score = record["account_influence"]
+        if score > p90_threshold and p90_threshold != float("inf"):
+            record["tier"] = 5
+        elif score > p60_threshold:
+            record["tier"] = 4
+        else:
+            record["tier"] = 3
+        tier_counts[record["tier"]] += 1
+        record["tier_label"] = _tier_label(record["tier"])
+
+    print(f"影响力分级完成（阈值 P60={p60_threshold:.2f}, P90={p90_threshold:.2f}）："
+          f"5级 {tier_counts[5]} 人 / 4级 {tier_counts[4]} 人 / 3级 {tier_counts[3]} 人\n")
+
+    # ----------------------------------------------------------------
+    # Phase 3: 调 LLM 生成画像，注入 influence_tier（跳过已存在文件）
+    # ----------------------------------------------------------------
+    llm = ChatOpenAI(
+        model=args.model,
+        api_key=api_key,
+        base_url=os.environ.get(args.base_url_env),
+        timeout=args.timeout,
+    )
+    llm_callable = _build_llm_callable(llm)
+
+    existing_files = {
+        p.stem for p in output_dir.glob("*.json") if p.name != "failed_users.json"
+    }
+    pending_records = [
+        r for r in user_records if r["canonical_name"] not in existing_files
+    ]
+    skipped_count = len(user_records) - len(pending_records)
+
+    if skipped_count > 0:
+        print(f"跳过 {skipped_count} 个已有画像的用户")
+        # 对已跳过的用户原地更新 tier 字段
+        for record in user_records:
+            if record["canonical_name"] in existing_files:
+                existing_path = output_dir / f"{record['canonical_name']}.json"
+                try:
+                    existing_profile = _load_json_object(existing_path)
+                except Exception:
+                    continue
+                existing_profile["influence_tier"] = record["tier"]
+                existing_profile["influence_tier_label"] = record["tier_label"]
+                _write_json(existing_path, existing_profile)
+        print()
+
+    if not pending_records:
+        print("所有用户画像均已存在，无需生成。")
+        return
+
+    success_count = 0
+    phase3_failed: list[dict[str, str]] = []
+    total = len(pending_records)
+
+    print(f"阶段 2/2：批量生成用户画像（{total} 个待生成）...\n")
+
+    for idx, record in enumerate(pending_records, start=1):
+        source = record["source"]
+        username = record["username"]
+        tier = record["tier"]
+        print(
+            f"[{idx}/{total}] {username} (Lv{tier}) 画像生成中 ...",
+            end=" ",
+            flush=True,
+        )
+
+        last_error = ""
+        max_attempts = 3
+        profile = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                profile = await generator.generate_portrait(
+                    source=source,
+                    llm_callable=llm_callable,
+                )
+                break
+            except PortraitGenerationError as exc:
+                last_error = str(exc)
+            except Exception as exc:
+                last_error = str(exc)
+            if attempt < max_attempts:
+                print(f"\n    第 {attempt} 次失败，重试中...", end=" ", flush=True)
+
+        if profile is None:
+            print(f"失败（{max_attempts} 次重试后）：{last_error}")
+            phase3_failed.append(
+                {
+                    "user_name": username,
+                    "reference_time": reference_time_text,
+                    "error_message": last_error or "未知错误",
+                }
+            )
+            continue
+
+        profile["influence_tier"] = tier
+        profile["influence_tier_label"] = record["tier_label"]
+        output_path = output_dir / f"{record['canonical_name']}.json"
+        _write_json(output_path, profile)
+        success_count += 1
+        print("完成")
+
+    # ----------------------------------------------------------------
+    # 汇总
+    # ----------------------------------------------------------------
+    full_total = len(user_records)
+    all_failed = phase1_failed + phase3_failed
+    print(
+        f"\n批量画像生成结束：本次生成 {success_count}/{total}；"
+        f"总计 {full_total} 人（已跳过 {skipped_count}），失败 {len(all_failed)} 人"
+    )
+    print(f"分级统计：5级 {tier_counts[5]} 人 / 4级 {tier_counts[4]} 人 / 3级 {tier_counts[3]} 人")
+
+    if all_failed:
+        failure_report_path = output_dir / "failed_users.json"
+        payload: dict[str, Any] = {
+            "failed_users": [item["user_name"] for item in all_failed],
+            "failed_details": all_failed,
+        }
+        _write_json(failure_report_path, payload)
+        print(f"失败名单已写入：{failure_report_path}")
+
+
+def _tier_label(tier: int) -> str:
+    """影响力级别对应的中文标签。"""
+    labels = {
+        3: "活跃参与者",
+        4: "影响力用户",
+        5: "核心意见领袖",
+    }
+    return labels.get(tier, f"Lv{tier}")
+
+
+def run_retier_command(args: argparse.Namespace) -> None:
+    """对已有画像 JSON 目录重新计算影响力分级，并回写每个文件。"""
+    portraits_dir = Path(args.portraits_dir).resolve()
+    if not portraits_dir.is_dir():
+        raise ValueError(f"目录不存在：{portraits_dir}")
+
+    json_files = sorted(portraits_dir.glob("*.json"))
+    if not json_files:
+        raise ValueError(f"目录中没有 JSON 文件：{portraits_dir}")
+
+    # 读取所有画像，提取 account_influence
+    records: list[dict[str, Any]] = []
+    for path in json_files:
+        try:
+            profile = _load_json_object(path)
+        except Exception:
+            print(f"跳过无法解析的文件：{path.name}")
+            continue
+        stats = profile.get("stats")
+        if not isinstance(stats, dict):
+            print(f"跳过缺少 stats 字段的文件：{path.name}")
+            continue
+        score = stats.get("account_influence")
+        if not isinstance(score, (int, float)):
+            print(f"跳过缺少 account_influence 的文件：{path.name}")
+            continue
+        records.append(
+            {
+                "path": path,
+                "profile": profile,
+                "account_influence": float(score),
+                "user_id": profile.get("user_id", path.stem),
+            }
+        )
+
+    if not records:
+        raise RuntimeError("没有可用的画像文件（均缺少 stats.account_influence）。")
+
+    # 按 account_influence 排序，计算 P60 / P90
+    sorted_records = sorted(records, key=lambda r: r["account_influence"])
+    n = len(sorted_records)
+    p60_threshold = sorted_records[int(n * 0.60)]["account_influence"] if n >= 5 else 0
+    p90_threshold = sorted_records[int(n * 0.90)]["account_influence"] if n >= 5 else float("inf")
+
+    tier_counts: dict[int, int] = {3: 0, 4: 0, 5: 0}
+    for record in sorted_records:
+        score = record["account_influence"]
+        if score > p90_threshold and p90_threshold != float("inf"):
+            tier = 5
+        elif score > p60_threshold:
+            tier = 4
+        else:
+            tier = 3
+        record["tier"] = tier
+        tier_counts[tier] += 1
+
+    # 回写每个 JSON
+    for record in sorted_records:
+        record["profile"]["influence_tier"] = record["tier"]
+        record["profile"]["influence_tier_label"] = _tier_label(record["tier"])
+        _write_json(record["path"], record["profile"])
+
+    print(
+        f"retier 完成，共处理 {n} 个画像文件\n"
+        f"阈值 P60={p60_threshold:.2f}, P90={p90_threshold:.2f}\n"
+        f"5级 {tier_counts[5]} 人 / 4级 {tier_counts[4]} 人 / 3级 {tier_counts[3]} 人"
     )
 
 
@@ -531,32 +839,18 @@ def _build_llm_callable(llm: ChatOpenAI) -> LlmCallable:
 
 
 def _extract_json_dict(raw_content: Any) -> dict[str, Any]:
-    """从模型输出中提取 JSON 对象。"""
+    """使用 json_repair 从模型原始输出中提取 JSON 对象。"""
+    from json_repair import repair_json
+
     text = _normalize_text_content(raw_content)
     if not text:
         return {}
-
-    candidates = [text]
-    candidates.extend(
-        re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.S)
-    )
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1 and start < end:
-        candidates.append(text[start : end + 1])
-
-    seen: set[str] = set()
-    for candidate in candidates:
-        normalized = candidate.strip()
-        if not normalized or normalized in seen:
-            continue
-        seen.add(normalized)
-        try:
-            payload = json.loads(normalized)
-        except json.JSONDecodeError:
-            continue
+    try:
+        payload = json.loads(repair_json(text))
         if isinstance(payload, dict):
             return payload
+    except Exception:
+        pass
     return {}
 
 
@@ -647,6 +941,22 @@ def _validate_tabular_columns(
     if not keys.intersection(supported_columns):
         joined = "、".join(supported_columns)
         raise ValueError(f"{path} 不符合预期列结构，应至少包含这些列中的一部分：{joined}")
+
+
+def _extract_all_usernames(data_path: Path, user_file: str) -> list[str]:
+    """从 user.xlsx/csv 中提取所有去重后的用户名列表。"""
+    user_path = data_path / user_file
+    rows = _load_tabular_rows(user_path)
+    seen: set[str] = set()
+    usernames: list[str] = []
+    for row in rows:
+        name = _normalize_username(row.get("用户名"))
+        if name and name not in seen:
+            seen.add(name)
+            usernames.append(name)
+    if not usernames:
+        raise ValueError(f"在 {user_path} 中未找到任何用户名。")
+    return usernames
 
 
 def _normalize_username(value: Any) -> str:
@@ -898,12 +1208,31 @@ def _parse_reference_time_to_timestamp(value: str) -> int:
 
 def main() -> None:
     """脚本入口。"""
+    try:
+        from dotenv import load_dotenv
+
+        _analysis_env = Path(__file__).resolve().parent / ".env"
+        if _analysis_env.exists():
+            load_dotenv(_analysis_env)
+        else:
+            load_dotenv()
+    except ImportError:
+        pass
+
     args = parse_args()
     if args.command == "portrait":
-        asyncio.run(run_portrait_command(args))
+        if args.batch:
+            asyncio.run(run_portrait_batch_command(args))
+        elif not args.user_name:
+            raise ValueError("请提供 --user-name，或使用 --batch 批量生成全部用户画像。")
+        else:
+            asyncio.run(run_portrait_command(args))
         return
     if args.command == "recommender":
         run_recommender_command(args)
+        return
+    if args.command == "retier":
+        run_retier_command(args)
         return
     raise ValueError(f"不支持的命令：{args.command}")
 

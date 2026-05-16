@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 import aiosqlite
-import sqlite_vss
+import sqlite_vec
 from backend.services.logger_service import logger
 
 
@@ -20,10 +20,9 @@ def get_database_path() -> Path:
     return DEFAULT_DATABASE_PATH
 
 
-async def load_vss(db):
+async def load_vec(db):
     await db.enable_load_extension(True)
-    await db.load_extension(sqlite_vss.vector_loadable_path())
-    await db.load_extension(sqlite_vss.vss_loadable_path())
+    await db.load_extension(sqlite_vec.loadable_path())
     await db.enable_load_extension(False)
 
 
@@ -32,12 +31,12 @@ async def get_db_connection():
     database_path = get_database_path()
     database_path.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(database_path) as db:
-        await load_vss(db)
+        await load_vec(db)
         db.row_factory = aiosqlite.Row
         yield db
 
 
-async def init_db():
+async def init_db(embedding_dim: int = 384):
     database_path = get_database_path()
     database_path.parent.mkdir(parents=True, exist_ok=True)
     logger.info("Initializing database...")
@@ -47,7 +46,7 @@ async def init_db():
     else:
         logger.info(f"Database file {database_path} not found. Creating...")
     async with aiosqlite.connect(database_path) as db:
-        await load_vss(db)
+        await load_vec(db)
         # Enable foreign keys
         await db.execute("PRAGMA foreign_keys = ON")
 
@@ -79,16 +78,16 @@ async def init_db():
             )
         """)
 
-        # Create posts_vss virtual table
+        # Create posts_vec virtual table
         try:
-            await db.execute("""
-                CREATE VIRTUAL TABLE IF NOT EXISTS posts_vss USING vss0(
-                    content_embedding(384)
-                )
-            """)
+            await db.execute(
+                f"""CREATE VIRTUAL TABLE IF NOT EXISTS posts_vec USING vec0(
+                    content_embedding float[{embedding_dim}]
+                )"""
+            )
         except Exception as e:
             logger.warning(
-                f"Failed to create vss table (might already exist or extension issue): {e}"
+                f"Failed to create vec table (might already exist or extension issue): {e}"
             )
 
         # Create comments table
