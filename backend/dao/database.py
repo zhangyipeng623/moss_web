@@ -56,9 +56,11 @@ async def init_db(embedding_dim: int = 384):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
                 nickname TEXT NOT NULL,
-                type TEXT DEFAULT 'AGENT', -- AGENT, USER
+                type TEXT DEFAULT 'AGENT',
                 bio TEXT,
                 user_info TEXT,
+                tier INTEGER DEFAULT 3,
+                belief_text TEXT DEFAULT '',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)

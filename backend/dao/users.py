@@ -20,14 +20,23 @@ async def create_user(
     nickname: str,
     bio: Optional[str] = None,
     user_info: Optional[Dict[str, Any]] = None,
+    tier: int = 3,
+    belief_text: Optional[str] = None,
 ) -> Dict[str, Any]:
     async with get_db_connection() as db:
         cursor = await db.execute(
             (
-                "INSERT INTO users (username, nickname, bio, user_info) "
-                "VALUES (?, ?, ?, ?) RETURNING *"
+                "INSERT INTO users (username, nickname, bio, user_info, tier, belief_text) "
+                "VALUES (?, ?, ?, ?, ?, ?) RETURNING *"
             ),
-            (username, nickname, bio, json.dumps(user_info or {}, ensure_ascii=False)),
+            (
+                username,
+                nickname,
+                bio or "",
+                json.dumps(user_info or {}, ensure_ascii=False),
+                tier,
+                belief_text or "",
+            ),
         )
         new_user = await cursor.fetchone()
         await db.commit()
