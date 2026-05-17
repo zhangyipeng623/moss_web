@@ -133,6 +133,10 @@ def parse_args() -> argparse.Namespace:
         help="推荐系统观测表路径，支持 xlsx/csv",
     )
     recommender_parser.add_argument(
+        "--portraits-dir",
+        help="用户画像 JSON 目录路径（由 portrait --batch 生成），用于语义处理和种群扩增",
+    )
+    recommender_parser.add_argument(
         "--retweet-columns",
         default="转发,分享,Quotes",
         help="用于汇总总转发量的列名，逗号分隔",
@@ -162,44 +166,25 @@ def parse_args() -> argparse.Namespace:
     recommender_parser.add_argument(
         "--num-agents",
         type=int,
-        default=1500,
-        help="ABM 模拟代理数量，默认 1500",
-    )
-    recommender_parser.add_argument(
-        "--avg-degree",
-        type=int,
-        default=20,
-        help="平均连接度，默认 20",
-    )
-    recommender_parser.add_argument(
-        "--verified-ratio",
-        type=float,
-        default=0.01,
-        help="认证账号占比，默认 0.01",
+        default=None,
+        help="ABM 模拟代理数量，未指定时按种子数×10 自动计算（基于 90:9:1 比例）",
     )
     recommender_parser.add_argument(
         "--min-scaled-target",
         type=int,
-        default=3,
-        help="最小缩放目标阈值，默认 3",
-    )
-    recommender_parser.add_argument(
-        "--n-trials-per-story",
-        type=int,
-        default=40,
-        help="单条内容概率校准试验次数，默认 40",
-    )
-    recommender_parser.add_argument(
-        "--n-trials-per-weight",
-        type=int,
-        default=100,
-        help="权重优化试验次数，默认 100",
-    )
-    recommender_parser.add_argument(
-        "--n-simulations-per-trial",
-        type=int,
         default=5,
-        help="每次试验的模拟次数，默认 5",
+        help="最小缩放目标阈值，默认 5",
+    )
+    recommender_parser.add_argument(
+        "--embedding-model",
+        default="BAAI/bge-m3",
+        help="文本嵌入模型名称，默认 BAAI/bge-m3",
+    )
+    recommender_parser.add_argument(
+        "--n-cpu",
+        type=int,
+        default=4,
+        help="并行校准使用的 CPU 核心数，默认 4",
     )
     recommender_parser.add_argument(
         "--input",
@@ -248,8 +233,8 @@ async def run_portrait_command(args: argparse.Namespace) -> None:
                 llm_callable=llm_callable,
                 global_event=global_event,
             )
-            profile["influence_tier"] = 3
-            profile["influence_tier_label"] = "活跃参与者（默认）"
+            profile["influence_tier"] = 4
+            profile["influence_tier_label"] = "Early Adopters"
             _write_json(output_path, profile)
             print(
                 f"用户画像已写入：{output_path}；参考时间：{reference_time_text}；"
@@ -279,7 +264,7 @@ async def run_portrait_command(args: argparse.Namespace) -> None:
 
 
 async def run_portrait_batch_command(args: argparse.Namespace) -> None:
-    """批量生成全部用户画像，并按影响力自动分 3/4/5 级。"""
+    """批量生成全部用户画像，并按 P84 阈值自动分 L4/L5（Rogers 5 级框架）。"""
     from langchain_openai import ChatOpenAI
 
     from analysis.user_portrait_generator import PortraitGenerationError, UserPortraitGenerator
@@ -344,27 +329,24 @@ async def run_portrait_batch_command(args: argparse.Namespace) -> None:
         raise RuntimeError("没有可用用户数据，无法进行批量画像生成。")
 
     # ----------------------------------------------------------------
-    # Phase 2: 按分位数切分 3/4/5 级（P60 / P90）
+    # Phase 2: P84 单阈值切分 L4/L5（Rogers 5 级框架——仅含 Early Adopters + Innovators）
     # ----------------------------------------------------------------
     sorted_records = sorted(user_records, key=lambda r: r["account_influence"])
     n = len(sorted_records)
-    p60_threshold = sorted_records[int(n * 0.60)]["account_influence"] if n >= 5 else 0
-    p90_threshold = sorted_records[int(n * 0.90)]["account_influence"] if n >= 5 else float("inf")
+    p84_threshold = sorted_records[int(n * 0.84)]["account_influence"] if n >= 5 else float("inf")
 
-    tier_counts: dict[int, int] = {3: 0, 4: 0, 5: 0}
+    tier_counts: dict[int, int] = {4: 0, 5: 0}
     for record in sorted_records:
         score = record["account_influence"]
-        if score > p90_threshold and p90_threshold != float("inf"):
+        if score > p84_threshold and p84_threshold != float("inf"):
             record["tier"] = 5
-        elif score > p60_threshold:
-            record["tier"] = 4
         else:
-            record["tier"] = 3
+            record["tier"] = 4
         tier_counts[record["tier"]] += 1
         record["tier_label"] = _tier_label(record["tier"])
 
-    print(f"影响力分级完成（阈值 P60={p60_threshold:.2f}, P90={p90_threshold:.2f}）："
-          f"5级 {tier_counts[5]} 人 / 4级 {tier_counts[4]} 人 / 3级 {tier_counts[3]} 人\n")
+    print(f"影响力分级完成（阈值 P84={p84_threshold:.2f}）："
+          f"L5 Innovators {tier_counts[5]} 人 / L4 Early Adopters {tier_counts[4]} 人\n")
 
     # ----------------------------------------------------------------
     # Phase 3: 调 LLM 生成画像，注入 influence_tier（跳过已存在文件）
@@ -464,7 +446,7 @@ async def run_portrait_batch_command(args: argparse.Namespace) -> None:
         f"\n批量画像生成结束：本次生成 {success_count}/{total}；"
         f"总计 {full_total} 人（已跳过 {skipped_count}），失败 {len(all_failed)} 人"
     )
-    print(f"分级统计：5级 {tier_counts[5]} 人 / 4级 {tier_counts[4]} 人 / 3级 {tier_counts[3]} 人")
+    print(f"分级统计：L5 Innovators {tier_counts[5]} 人 / L4 Early Adopters {tier_counts[4]} 人")
 
     if all_failed:
         failure_report_path = output_dir / "failed_users.json"
@@ -477,11 +459,13 @@ async def run_portrait_batch_command(args: argparse.Namespace) -> None:
 
 
 def _tier_label(tier: int) -> str:
-    """影响力级别对应的中文标签。"""
+    """Rogers 5 级创新扩散标签。"""
     labels = {
-        3: "活跃参与者",
-        4: "影响力用户",
-        5: "核心意见领袖",
+        1: "Laggards",
+        2: "Late Majority",
+        3: "Early Majority",
+        4: "Early Adopters",
+        5: "Innovators",
     }
     return labels.get(tier, f"Lv{tier}")
 
@@ -524,21 +508,18 @@ def run_retier_command(args: argparse.Namespace) -> None:
     if not records:
         raise RuntimeError("没有可用的画像文件（均缺少 stats.account_influence）。")
 
-    # 按 account_influence 排序，计算 P60 / P90
+    # 按 account_influence 排序，计算 P84 单阈值
     sorted_records = sorted(records, key=lambda r: r["account_influence"])
     n = len(sorted_records)
-    p60_threshold = sorted_records[int(n * 0.60)]["account_influence"] if n >= 5 else 0
-    p90_threshold = sorted_records[int(n * 0.90)]["account_influence"] if n >= 5 else float("inf")
+    p84_threshold = sorted_records[int(n * 0.84)]["account_influence"] if n >= 5 else float("inf")
 
-    tier_counts: dict[int, int] = {3: 0, 4: 0, 5: 0}
+    tier_counts: dict[int, int] = {4: 0, 5: 0}
     for record in sorted_records:
         score = record["account_influence"]
-        if score > p90_threshold and p90_threshold != float("inf"):
+        if score > p84_threshold and p84_threshold != float("inf"):
             tier = 5
-        elif score > p60_threshold:
-            tier = 4
         else:
-            tier = 3
+            tier = 4
         record["tier"] = tier
         tier_counts[tier] += 1
 
@@ -550,29 +531,65 @@ def run_retier_command(args: argparse.Namespace) -> None:
 
     print(
         f"retier 完成，共处理 {n} 个画像文件\n"
-        f"阈值 P60={p60_threshold:.2f}, P90={p90_threshold:.2f}\n"
-        f"5级 {tier_counts[5]} 人 / 4级 {tier_counts[4]} 人 / 3级 {tier_counts[3]} 人"
+        f"阈值 P84={p84_threshold:.2f}\n"
+        f"L5 Innovators {tier_counts[5]} 人 / L4 Early Adopters {tier_counts[4]} 人"
     )
 
 
 def run_recommender_command(args: argparse.Namespace) -> None:
-    """执行推荐参数反推命令。"""
+    """执行推荐参数反推命令（v8 向量化 ABM + Optuna EM）。"""
     from analysis.recommender_parameter_inference import (
         RecommendationParameterInferer,
         build_story_observations,
+        load_portraits_from_dir,
     )
 
-    records, inferer_config, anchor_percentile, max_iterations, input_stem = (
+    # 1. 读取内容观测数据
+    records, anchor_percentile, max_iterations, input_stem = (
         _resolve_recommender_input(args)
     )
     observations = build_story_observations(records)
-    inferer = RecommendationParameterInferer(**inferer_config)
+
+    # 2. 确定 ABM 规模
+    portraits_dir = None
+    if args.portraits_dir:
+        portraits_dir = Path(args.portraits_dir).resolve()
+    personas: list[dict[str, Any]] = []
+    if portraits_dir and portraits_dir.is_dir():
+        personas = load_portraits_from_dir(portraits_dir)
+
+    num_agents = _resolve_num_agents(args.num_agents, len(personas))
+    print(f"ABM 规模: {num_agents} 人（种子 {len(personas)} 个用户画像）")
+
+    # 3. 初始化推理器
+    inferer = RecommendationParameterInferer(
+        num_agents=num_agents,
+        min_scaled_target=args.min_scaled_target,
+        embedding_model=args.embedding_model,
+        n_cpu=args.n_cpu,
+        target_size_for_sampling=num_agents,
+    )
+
+    # 4. 加载画像 → 语义处理 → 种群扩增
+    if personas:
+        print(f"加载 {len(personas)} 个用户画像，执行语义处理与种群扩增...")
+        inferer.load_portraits(personas)
+    else:
+        print("警告：未提供画像目录（--portraits-dir），跳过语义处理，使用均匀随机种群。")
+
+    # 5. 筛选代表性内容（独立于画像）
     representative_stories = inferer.select_representative_stories(
         observations,
         anchor_percentile=anchor_percentile,
     )
+
     best_weights: dict[str, Any] = {}
     if representative_stories:
+        # 6. 预计算兴趣向量
+        if personas:
+            inferer.precompute_interests()
+
+        # 7. EM 校准
         best_weights = inferer.run_em_calibration_loop(max_iterations=max_iterations)
 
     result = {
@@ -581,9 +598,10 @@ def run_recommender_command(args: argparse.Namespace) -> None:
             "selected_story_count": len(representative_stories),
             "anchor_percentile": anchor_percentile,
             "max_iterations": max_iterations,
-            "inferer_config": inferer_config,
-            "fixed_p_online": inferer.p_online,
-            "fixed_duration_hours": inferer.duration,
+            "num_agents": num_agents,
+            "num_seeds": len(personas),
+            "embedding_model": args.embedding_model,
+            "p_online": inferer.p_online,
         },
         "representative_stories": representative_stories,
         "calibrated_probs": inferer.calibrated_probs,
@@ -617,8 +635,8 @@ def _resolve_portrait_source(
 
 def _resolve_recommender_input(
     args: argparse.Namespace,
-) -> tuple[list[dict[str, Any]], dict[str, Any], float, int, str]:
-    """解析推荐参数命令输入来源。"""
+) -> tuple[list[dict[str, Any]], float, int, str]:
+    """解析推荐参数命令输入来源，返回 (records, anchor_percentile, max_iterations, stem)。"""
     if args.input:
         input_path = Path(args.input).resolve()
         payload = _load_json_object(input_path)
@@ -626,16 +644,10 @@ def _resolve_recommender_input(
         if not isinstance(records, list) or not records:
             raise ValueError("推荐参数输入 JSON 需要提供非空 records 数组。")
         _validate_recommender_records(records)
-
-        inferer_config = payload.get("inferer_config") or {}
-        if not isinstance(inferer_config, dict):
-            raise ValueError("inferer_config 必须是 JSON 对象。")
-        _validate_recommender_inferer_config(inferer_config)
-
         anchor_percentile = float(payload.get("anchor_percentile", 0.8))
         max_iterations = int(payload.get("max_iterations", 3))
         _validate_recommender_meta(anchor_percentile, max_iterations)
-        return records, inferer_config, anchor_percentile, max_iterations, input_path.stem
+        return records, anchor_percentile, max_iterations, input_path.stem
 
     if not args.data_file:
         raise ValueError("请提供 --data-file，或使用兼容模式的 --input。")
@@ -648,24 +660,25 @@ def _resolve_recommender_input(
         id_column=args.id_column,
     )
     _validate_recommender_records(records)
-    inferer_config = {
-        "num_agents": args.num_agents,
-        "avg_degree": args.avg_degree,
-        "verified_ratio": args.verified_ratio,
-        "min_scaled_target": args.min_scaled_target,
-        "n_trials_per_story": args.n_trials_per_story,
-        "n_trials_per_weight": args.n_trials_per_weight,
-        "n_simulations_per_trial": args.n_simulations_per_trial,
-    }
-    _validate_recommender_inferer_config(inferer_config)
     _validate_recommender_meta(args.anchor_percentile, args.max_iterations)
     return (
         records,
-        inferer_config,
         args.anchor_percentile,
         args.max_iterations,
         data_file.stem,
     )
+
+
+def _resolve_num_agents(cli_value: int | None, num_seeds: int) -> int:
+    """根据 CLI 参数和种子数确定 ABM 规模。
+
+    优先级：CLI 显式指定 > 种子数 × 10 (基于 90:9:1) > 默认 1500
+    """
+    if cli_value is not None and cli_value > 0:
+        return cli_value
+    if num_seeds > 0:
+        return num_seeds * 10
+    return 1500
 
 
 def _build_portrait_source_from_excel(
@@ -1016,26 +1029,6 @@ def _validate_recommender_meta(anchor_percentile: float, max_iterations: int) ->
         raise ValueError("max_iterations 必须大于 0。")
 
 
-def _validate_recommender_inferer_config(inferer_config: dict[str, Any]) -> None:
-    """校验推荐参数反推器配置。"""
-    int_fields = (
-        "num_agents",
-        "avg_degree",
-        "min_scaled_target",
-        "n_trials_per_story",
-        "n_trials_per_weight",
-        "n_simulations_per_trial",
-    )
-    for field_name in int_fields:
-        value = inferer_config.get(field_name)
-        if value is None:
-            continue
-        if int(value) <= 0:
-            raise ValueError(f"{field_name} 必须大于 0。")
-
-    verified_ratio = inferer_config.get("verified_ratio")
-    if verified_ratio is not None and not 0 <= float(verified_ratio) <= 1:
-        raise ValueError("verified_ratio 必须在 [0, 1] 区间内。")
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
