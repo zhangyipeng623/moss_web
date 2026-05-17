@@ -1,0 +1,7 @@
+username,name,bio,profile_mode,tier
+user_l3_001,张明,普通上班族，对科技和体育感兴趣,simple,3
+user_l3_002,刘洋,中学教师，关注教育和社会话题,simple,3
+user_l2_001,李华,大学生，关注娱乐和美食,simple,2
+user_l2_002,陈静,家庭主妇，喜欢看生活类内容,simple,2
+user_l1_001,王芳,退休人员，偶尔看看新闻,simple,1
+user_l1_002,赵强,货车司机，很少使用社交媒体,simple,1
