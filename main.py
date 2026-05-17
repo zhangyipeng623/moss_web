@@ -7,6 +7,7 @@ import dotenv
 import random
 import urllib.request
 import urllib.error
+import yaml
 from datetime import datetime
 from pathlib import Path
 
@@ -14,6 +15,7 @@ import numpy as np
 import uvicorn
 
 from core.experiment_config import ExperimentConfig, load_experiment_config
+from core.calibration_profile import CalibrationProfile
 from core.runtime import (
     RunContext,
     configure_logging,
@@ -21,13 +23,11 @@ from core.runtime import (
     export_run_context,
     save_config_snapshot,
 )
+from backend.services.social_recsys import SocialRecSys
 
 dotenv.load_dotenv()
 
 
-DEFAULT_EXPERIMENT_CONFIG = (
-    Path(__file__).resolve().parent / "configs" / "experiments" / "default.json"
-)
 logger = configure_logging(
     Path(os.environ.get("MOSS_BOOTSTRAP_LOG", "/tmp/moss_bootstrap.log")),
     "main",
@@ -152,19 +152,38 @@ def start_agent(run_context: RunContext, experiment_data: dict, config_path: str
     asyncio.run(_run())
 
 
+def load_calibration_profile(path: str | Path) -> CalibrationProfile:
+    """加载统一校准+模拟配置文件（YAML）。"""
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return CalibrationProfile.model_validate(data)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="启动 MOSS 推演实验")
     parser.add_argument(
         "--config",
-        default=str(DEFAULT_EXPERIMENT_CONFIG),
-        help="实验配置文件路径",
+        required=True,
+        help="校准配置文件路径（calibration_profile.yaml）",
     )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    experiment = load_experiment_config(args.config)
+
+    # 加载 calibration_profile.yaml（替代原 experiment.json）
+    if not Path(args.config).exists():
+        raise SystemExit(f"配置文件不存在：{args.config}")
+
+    calibration = load_calibration_profile(args.config)
+
+    # 从 YAML experiment 段提取实验配置
+    experiment = calibration.to_experiment_config()
+
+    # 注入推荐服务参数（替代硬编码常量）
+    SocialRecSys.configure(calibration.recommender, calibration.embedding)
+
     run_context = create_run_context()
     export_run_context(run_context)
     configure_logging(run_context.backend_log_path, "main", console_enabled=True)
