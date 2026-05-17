@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, field_validator
 
 
 class LLMConfig(BaseModel):
@@ -16,13 +16,21 @@ class AgentConfig(BaseModel):
     username: str
     name: str
     bio: str
-    profile_mode: Literal["default", "custom"] = "default"
+    profile_mode: Literal["default", "custom", "simple"] = "default"
+    tier: Optional[int] = None
     user_info: Optional[dict[str, Any]] = None
     user_info_json: Optional[str] = None
     user_info_template: Optional[str] = None
     user_info_template_path: Optional[str] = None
     profile_path: Optional[str] = None
     profile_text: Optional[str] = None
+
+    @field_validator("tier")
+    @classmethod
+    def validate_tier(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and not (1 <= v <= 5):
+            raise ValueError(f"tier must be 1-5, got {v}")
+        return v
 
 
 class PortraitConfig(BaseModel):
