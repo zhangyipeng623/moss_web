@@ -63,6 +63,18 @@ FIXED_USER_INFO_FIELDS = (
     "avoidance_rules_text",
 )
 
+SIMPLE_USER_TEMPLATE = """你现在需要扮演 {name}，一个社交网络上的用户。
+个人简介：{bio}
+{behavior_expectation}"""
+
+TIER_BEHAVIOR = {
+    5: "你是一个社交媒体上的重度活跃用户和创新者，乐于表达观点、发起讨论，是社区的意见领袖。你会积极参与信息流互动，频繁点赞、评论、转发感兴趣的内容。",
+    4: "你是一个比较活跃的社交媒体用户，愿意尝试新话题，经常参与讨论。你会有选择地浏览信息流，对自己感兴趣的内容进行点赞、评论或转发。",
+    3: "你是一个比较活跃的用户，会定期浏览信息流，对自己感兴趣的内容进行点赞、评论或转发。如果没有特别感兴趣的内容，你可以选择不互动。",
+    2: "你偶尔会浏览社交网络，很少主动发帖，主要在遇到特别感兴趣的内容时才会点赞或评论。",
+    1: "你几乎不发帖，以浏览为主。只有在极少数情况下才会互动。",
+}
+
 CURRENT_EVENT_TEMPLATE = """[全局事件]
 当前世界关注的核心事件如下：
 "{global_event_description}"
@@ -80,6 +92,7 @@ class MossAgent:
         llm: ChatOpenAI,
         user_info: Optional[dict[str, Any]] = None,
         user_info_template: Optional[str] = None,
+        profile_mode: str = "default",
     ):
         self.platform = platform
         self.username = username
@@ -89,6 +102,7 @@ class MossAgent:
         self.global_event = global_event
         self.user_data = None
         self.user_info_template = user_info_template
+        self.profile_mode = profile_mode
         self.round_id = 0
         self._step_actions: list[ActionTrace] = []
         self.step_retry_limit = 3
@@ -115,6 +129,20 @@ class MossAgent:
         logger.info(f"Agent {self.nickname} started. User ID: {self.user_data.id}")
 
     def _build_static_context(self) -> StaticContext:
+        if self.profile_mode == "simple":
+            tier = self.user_info.get("tier", 3) if self.user_info else 3
+            behavior = TIER_BEHAVIOR.get(tier, TIER_BEHAVIOR[3])
+            return StaticContext(
+                profile_text=SIMPLE_USER_TEMPLATE.format(
+                    name=self.nickname or self.username,
+                    bio=self.bio,
+                    behavior_expectation=behavior,
+                ),
+                global_event_text=CURRENT_EVENT_TEMPLATE.format(
+                    global_event_description=self.global_event
+                ),
+            )
+
         if self.user_info_template:
             try:
                 profile_text = self.user_info_template.format(**self.user_info)

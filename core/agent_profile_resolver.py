@@ -94,6 +94,9 @@ def _resolve_user_info(
     base_dir: Path,
 ) -> dict[str, Any] | None:
     """根据模式解析 user_info。"""
+    if agent.profile_mode == "simple":
+        return {"bio": agent.bio, "tier": agent.tier or 3}
+
     if agent.profile_mode == "default":
         user_info = _resolve_inline_or_file_profile(agent, base_dir)
         if user_info is None:
@@ -146,6 +149,9 @@ def _resolve_user_info_template(
     base_dir: Path,
 ) -> str | None:
     """解析最终注入 Agent 的模板。"""
+    if agent.profile_mode == "simple":
+        return None  # Uses built-in SIMPLE_USER_TEMPLATE in agent.py
+
     if agent.profile_mode == "default":
         return None
 
