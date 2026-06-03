@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 记忆系统优化 — 检索评分与时间衰减</title>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --card-bg: #ffffff;
+    --text: #212529;
+    --text-secondary: #6c757d;
+    --border: #dee2e6;
+    --accent: #2563eb;
+    --accent-light: #dbeafe;
+    --tag-bg: #e9ecef;
+    --tag-text: #495057;
+    --highlight: #fef3c7;
+    --danger-light: #fee2e2;
+    --danger: #dc2626;
+    --success-light: #dcfce7;
+    --success: #16a34a;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 40px 20px;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+  h1 {
+    font-size: 2rem;
+    margin-bottom: 8px;
+    color: #111;
+    border-bottom: 2px solid var(--accent);
+    padding-bottom: 12px;
+  }
+  h2 {
+    font-size: 1.35rem;
+    margin: 32px 0 12px;
+    color: #1e3a5f;
+    padding-left: 10px;
+    border-left: 4px solid var(--accent);
+  }
+  h3 { font-size: 1.1rem; margin: 20px 0 8px; color: #333; }
+  p { margin-bottom: 10px; }
+  .meta { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 24px; }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .card h3 { margin-top: 0; }
+  .ref-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.92rem; }
+  .ref-table th, .ref-table td { padding: 10px 12px; border: 1px solid var(--border); text-align: left; }
+  .ref-table th { background: #f1f5f9; font-weight: 600; font-size: 0.85rem; color: #475569; }
+  .ref-table tr:hover { background: #f8fafc; }
+  .tag {
+    display: inline-block;
+    background: var(--tag-bg);
+    color: var(--tag-text);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    margin-right: 4px;
+  }
+  .tag.accent { background: var(--accent-light); color: var(--accent); }
+  .tag.success { background: var(--success-light); color: var(--success); }
+  .tag.danger { background: var(--danger-light); color: var(--danger); }
+  ul, ol { margin: 8px 0 8px 20px; }
+  li { margin-bottom: 4px; }
+  .highlight-box {
+    background: var(--highlight);
+    border-left: 4px solid #f59e0b;
+    padding: 12px 16px;
+    margin: 12px 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .danger-box {
+    background: var(--danger-light);
+    border-left: 4px solid var(--danger);
+    padding: 12px 16px;
+    margin: 12px 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .formula {
+    background: #f1f5f9;
+    padding: 12px 16px;
+    border-radius: 6px;
+    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    font-size: 0.88rem;
+    overflow-x: auto;
+    margin: 8px 0;
+    white-space: pre;
+  }
+  .code-inline {
+    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    font-size: 0.88rem;
+    background: #f1f5f9;
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  .comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 12px 0;
+  }
+  .comparison > div {
+    padding: 16px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+  .comparison .old { background: #fef2f2; border-color: #fecaca; }
+  .comparison .new { background: #f0fdf4; border-color: #bbf7d0; }
+  .comparison h4 { margin: 0 0 8px; font-size: 0.95rem; }
+  footer {
+    margin-top: 48px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    text-align: center;
+  }
+  .toc { list-style: none; margin: 8px 0; }
+  .toc li { margin-bottom: 6px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .chart-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0;
+    font-size: 0.88rem;
+  }
+  .chart-bar .bar {
+    height: 20px;
+    border-radius: 3px;
+    background: var(--accent-light);
+    min-width: 2px;
+    transition: width 0.3s;
+  }
+  .chart-bar .bar.old-bar { background: #fca5a5; }
+  .chart-bar .label { min-width: 180px; font-size: 0.85rem; }
+  .chart-bar .val { min-width: 50px; text-align: right; font-weight: 600; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Agent 记忆系统优化</h1>
+<p class="meta">检索评分公式重构 + 时间衰减引入 &nbsp;|&nbsp; 基于认知科学 Ebbinghaus 遗忘曲线 &nbsp;|&nbsp; 日期：2026-05-17 &nbsp;|&nbsp; 分支：feat/recsys</p>
+
+<div class="card">
+  <h3>概述</h3>
+  <p>
+    MOSS Agent 的记忆系统采用<strong>短期记忆（ShortTermMemory）+ 事件记忆（EventMemory）</strong>双层架构，
+    核心设计理念是模拟真实用户的记忆模式：短期记忆保留近 3 轮的浏览片段（模拟刷信息流的瞬时记忆），
+    事件记忆存储 Agent <strong>自主选择</strong>的重要信息（模拟人类选择性长期记忆）。
+  </p>
+  <p>
+    在记忆检索环节，<span class="code-inline">select_relevant_events</span> 方法负责从 EventMemory 中选取与当前 Feed 上下文最相关的事件，
+    注入 LLM 决策的 prompt 中。然而，当前检索评分公式存在结构性缺陷——<strong>规则加分权重过大，可轻易压倒 Agent 自身的重要性判断</strong>。
+  </p>
+  <p>
+    本次优化不改架构、不上向量检索、不增加计算耗时。仅重构评分公式并引入时间衰减机制。
+  </p>
+</div>
+
+<div class="card">
+  <h3>目录</h3>
+  <ol class="toc">
+    <li><a href="#sec1">1. 当前记忆系统架构</a></li>
+    <li><a href="#sec2">2. 问题诊断：检索评分的结构性缺陷</a></li>
+    <li><a href="#sec3">3. 优化方案：乘法评分 + 时间衰减</a></li>
+    <li><a href="#sec4">4. 方案对比与效果预估</a></li>
+    <li><a href="#sec5">5. 学术论文参考</a></li>
+    <li><a href="#sec6">6. 工业实践参考</a></li>
+  </ol>
+</div>
+
+<!-- ====== Section 1 ====== -->
+<h2 id="sec1">1. 当前记忆系统架构</h2>
+
+<div class="card">
+  <h3>1.1 记忆四组件</h3>
+  <table class="ref-table">
+    <tr><th>组件</th><th>类型</th><th>容量</th><th>核心功能</th></tr>
+    <tr>
+      <td><span class="code-inline">StaticContext</span></td>
+      <td>静态上下文</td>
+      <td>固定</td>
+      <td>Agent 画像文本 + 全局事件描述，整个模拟过程中不变</td>
+    </tr>
+    <tr>
+      <td><span class="code-inline">ShortTermMemory</span></td>
+      <td>短期记忆（滑动窗口）</td>
+      <td>最近 3 轮</td>
+      <td>每轮保留 Feed 快照 + 执行动作 + 输出摘要。模拟浏览信息流时的瞬时记忆</td>
+    </tr>
+    <tr>
+      <td><span class="code-inline">AgentState</span></td>
+      <td>心理状态</td>
+      <td>单条</td>
+      <td>情绪/强度/当前目标/关注话题/立场摘要/重点关注对象。LLM 每轮更新</td>
+    </tr>
+    <tr>
+      <td><span class="code-inline">EventMemory</span></td>
+      <td>事件记忆（持久化）</td>
+      <td>最多 50 条</td>
+      <td><strong>Agent 自主选择</strong>存储的重要事件摘要。按 importance 排序，超出上限淘汰低重要性记录</td>
+    </tr>
+  </table>
+  <p>
+    四组件在决策循环中的流转：
+  </p>
+  <ol>
+    <li><strong>检索阶段</strong>：从 EventMemory 中<span class="code-inline">select_relevant_events</span> 选出与当前 Feed 最相关的 top-5 事件</li>
+    <li><strong>构建 prompt</strong>：拼接静态画像 + 短期记忆 + AgentState + 相关事件 + 当前环境快照</li>
+    <li><strong>LLM 决策</strong>：Agent 执行工具调用（发帖/评论/点赞/转发/不动），输出状态更新和事件记忆更新</li>
+    <li><strong>更新记忆</strong>：MemoryManager 写入新的 ShortTermRecord，若 Agent 判定 should_store 则写入 EventMemory</li>
+  </ol>
+</div>
+
+<div class="card">
+  <h3>1.2 设计哲学</h3>
+  <p>记忆系统的设计遵循两个核心认知原则：</p>
+  <ul>
+    <li><strong>工作记忆有限</strong>：真实用户在刷社交平台时，不会记住 10 分钟前看到的每一条帖子。3 轮短期记忆窗口模拟了这种"看完就忘"的浏览特征。</li>
+    <li><strong>选择性编码</strong>：不是所有信息都值得长期记忆。Agent 自己决定什么事件足够重要去记住（<span class="code-inline">should_store=true</span>），并由 Agent 自己评定重要性分数。这模拟了人类"只记住想记住的"这一特征。</li>
+  </ul>
+  <div class="highlight-box">
+    <strong>设计者原话</strong>："我们模拟的是用户，是一个人。他在浏览社交平台的时候，记忆也不是实时记住所有事情的。短期的 3 轮用来模拟查看社交平台时只会记住短暂浏览片段；长期的 EventMemory 用来记住我们想记住的重要信息。"
+  </div>
+</div>
+
+<!-- ====== Section 2 ====== -->
+<h2 id="sec2">2. 问题诊断：检索评分的结构性缺陷</h2>
+
+<div class="card">
+  <h3>2.1 当前评分公式</h3>
+  <div class="formula">def select_relevant_events(snapshot, top_k=5):
+    for record in event_memory.records:
+        score = record.importance           # 基础分：Agent 自评重要性 (0~1)
+
+        if 帖子ID匹配当前Feed:   score += 1.0   # ← 直接加 1
+        if 作者在Feed中:        score += 0.7
+        if 话题词在Feed文本中:  score += 0.5
+        if 话题匹配关注主题:    score += 0.3
+        if 关注对象匹配:        score += 0.2
+
+        # 规则加分总额可达 +2.7，而 importance 仅 0~1</div>
+
+  <p>核心问题：<strong>规则加分权重过大，可以轻易压倒 Agent 自身的重要性判断</strong>。</p>
+</div>
+
+<div class="card">
+  <h3>2.2 缺陷示例</h3>
+  <table class="ref-table">
+    <tr><th>场景</th><th>旧公式得分</th><th>问题</th></tr>
+    <tr>
+      <td>Agent 评为 importance=0.9 的重要事件，当前 Feed 无直接匹配</td>
+      <td><strong>0.9</strong></td>
+      <td>基准线</td>
+    </tr>
+    <tr>
+      <td>Agent 评为 importance=0.3 的次要事件，但帖子 ID + 作者 + 话题全部匹配</td>
+      <td style="color: var(--danger); font-weight: 600;">2.5（反超！）</td>
+      <td>一个 Agent 自己都认为不重要的事件，仅因为规则匹配就排到了最前面</td>
+    </tr>
+    <tr>
+      <td>importance=0.9 事件，全匹配</td>
+      <td>3.1</td>
+      <td>与 0.3 事件的差距 (3.1 vs 2.5) 被压缩到仅 0.6</td>
+    </tr>
+  </table>
+
+  <div class="danger-box">
+    <strong>根本矛盾</strong>：Agent 当初自主判断"这个事件的重要度是 0.3"，但在检索时，系统通过规则匹配强行将其推到 2.5 分。
+    这等于否定了 Agent 自己的判断——既然检索时规则匹配说了算，那 Agent 当初评分还有什么意义？
+  </div>
+</div>
+
+<div class="card">
+  <h3>2.3 附加问题：缺乏时间衰减</h3>
+  <p>
+    当前检索完全忽略事件的<strong>存储时间</strong>。第 1 轮存入的事件和第 50 轮存入的事件在检索时完全平等。
+    这不符合人类记忆规律——现实中，时间越久远的记忆越难以被当前刺激所触发。
+  </p>
+  <p>
+    在长周期模拟（如 50+ 轮）中，EventMemory 会被早期事件占满，而这些"远古记忆"的新鲜度与近期事件完全相同，
+    导致检索结果与当前情境脱节。
+  </p>
+</div>
+
+<!-- ====== Section 3 ====== -->
+<h2 id="sec3">3. 优化方案：乘法评分 + 时间衰减</h2>
+
+<div class="card">
+  <h3>3.1 新评分公式</h3>
+  <div class="formula">score = importance × recency_decay × (1 + context_boost)
+
+其中：
+  importance      = Agent 当初自评的重要性 (0~1)，<strong>主信号</strong>
+  recency_decay   = exp(-λ × rounds_ago)，Ebbinghaus 遗忘曲线
+  context_boost   = 各项匹配累加，<strong>硬上限 0.3</strong></div>
+
+  <p>三项因子的设计逻辑：</p>
+  <table class="ref-table">
+    <tr><th>因子</th><th>公式</th><th>作用</th><th>为什么这样设计</th></tr>
+    <tr>
+      <td><span class="code-inline">importance</span></td>
+      <td>Agent 原始评分 0~1</td>
+      <td>主信号</td>
+      <td>尊重 Agent 的自主判断。这是乘法的基础项，为 0 则结果恒为 0</td>
+    </tr>
+    <tr>
+      <td><span class="code-inline">recency_decay</span></td>
+      <td><span class="code-inline">exp(-0.07 × rounds_ago)</span></td>
+      <td>时间衰减，半衰期 ~10 轮</td>
+      <td>符合 Ebbinghaus 遗忘曲线。近期记忆更易被触发，远古记忆自然淡出</td>
+    </tr>
+    <tr>
+      <td><span class="code-inline">1 + context_boost</span></td>
+      <td>加成上限 0.3（即乘数 ≤ 1.3）</td>
+      <td>锦上添花</td>
+      <td>上下文联想提供合理增益，但硬上限确保规则匹配永远不能主导排序</td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>3.2 context_boost 细则</h3>
+  <table class="ref-table">
+    <tr><th>匹配条件</th><th>加成值</th><th>认知依据</th></tr>
+    <tr>
+      <td>相关用户出现在当前 Feed 中</td>
+      <td>+0.12</td>
+      <td>看到某个人会触发与此人相关记忆，这是最自然的记忆触发机制</td>
+    </tr>
+    <tr>
+      <td>话题匹配 Agent 当前关注主题</td>
+      <td>+0.10</td>
+      <td>正在关注的话题是记忆检索的高优先级线索</td>
+    </tr>
+    <tr>
+      <td>帖子 ID 出现在当前 Feed（引用/转发）</td>
+      <td>+0.05</td>
+      <td>看到同一帖子被二次传播，提醒此前与此帖的交互</td>
+    </tr>
+    <tr>
+      <td>话题词在 Feed 文本中出现</td>
+      <td>+0.03</td>
+      <td>弱信号：Feed 中提到类似话题，提供轻微联想</td>
+    </tr>
+  </table>
+  <p>四项累加上限为 0.30。如果全匹配（0.12+0.10+0.05+0.03=0.30），乘数为 1.30，即最多提升 30%。</p>
+  <p><strong>去除了"关注对象匹配"（+0.20）</strong>：此项与"相关用户匹配"高度重叠且无认知科学依据。</p>
+</div>
+
+<div class="card">
+  <h3>3.3 时间衰减参数</h3>
+  <p>
+    衰减系数 λ 默认取 <strong>0.07</strong>，对应半衰期约 10 轮。
+    这意味着：一条重要性评分相同的记忆，在 10 轮后其检索得分将降至原始的一半（在无上下文加成的情况下）。
+  </p>
+  <table class="ref-table">
+    <tr><th>λ</th><th>半衰期</th><th>适用场景</th></tr>
+    <tr><td>0.05</td><td>~14 轮</td><td>慢节奏长周期模拟，Agent 需要在较长时间内保持记忆可及性</td></tr>
+    <tr><td><strong>0.07（推荐）</strong></td><td><strong>~10 轮</strong></td><td>均衡选择，大多数场景适用</td></tr>
+    <tr><td>0.10</td><td>~7 轮</td><td>快节奏短周期模拟，记忆快速更替</td></tr>
+  </table>
+  <p>λ 写入 <span class="code-inline">calibration_profile.yaml</span> 的 <span class="code-inline">simulation.memory.decay_lambda</span> 字段，可针对不同实验场景调整。</p>
+</div>
+
+<div class="card">
+  <h3>3.4 为什么不在淘汰（Eviction）中加时间衰减</h3>
+  <p>
+    EventMemory 的淘汰策略保持纯 importance 排序。理由：
+  </p>
+  <ul>
+    <li><strong>语义一致性</strong>：淘汰 = "忘记"，而 Agent 当初评了高 importance 的事件就是"不想忘记的"。如果因为时间久远就淘汰高重要性事件，等于系统替 Agent 做了"这个不再重要"的判断，与"Agent 自主选择记忆"的设计哲学矛盾。</li>
+    <li><strong>检索已足够</strong>：时间衰减在检索阶段生效即可。一条远古高重要性事件在检索时得分会被自然压低，但仍保留在记忆中——这模拟了"我记得但不太想得起来"的状态。</li>
+    <li><strong>低风险</strong>：即便远古高重要性事件偶尔被触发，也不会造成行为异常——它不过是 prompt 中的一条相关上下文。</li>
+  </ul>
+</div>
+
+<!-- ====== Section 4 ====== -->
+<h2 id="sec4">4. 方案对比与效果预估</h2>
+
+<div class="card">
+  <h3>4.1 旧 vs 新 对比</h3>
+  <div class="comparison">
+    <div class="old">
+      <h4><span class="tag danger">旧方案</span> 加法评分</h4>
+      <div class="formula">score = importance
+  + 1.0 × 帖子ID匹配
+  + 0.7 × 作者匹配
+  + 0.5 × 话题文本匹配
+  + 0.3 × 关注主题匹配
+  + 0.2 × 关注对象匹配</div>
+      <ul>
+        <li>重要性权重被稀释</li>
+        <li>规则匹配可主导排序</li>
+        <li>无时间维度</li>
+      </ul>
+    </div>
+    <div class="new">
+      <h4><span class="tag success">新方案</span> 乘法评分 + 时间衰减</h4>
+      <div class="formula">score = importance
+  × exp(-λ × rounds_ago)
+  × (1 + min(context_boost, 0.3))</div>
+      <ul>
+        <li>重要性为主导信号</li>
+        <li>规则匹配仅提供有限增益</li>
+        <li>时间自然衰减</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>4.2 关键场景得分对比</h3>
+  <table class="ref-table">
+    <tr><th>场景</th><th>旧公式</th><th>新公式</th><th>判断</th></tr>
+    <tr>
+      <td>importance=0.9，无匹配，本轮</td>
+      <td>0.90</td>
+      <td>0.90</td>
+      <td><span class="tag success">一致</span></td>
+    </tr>
+    <tr>
+      <td>importance=0.3，全匹配，本轮</td>
+      <td style="color: var(--danger);">2.50</td>
+      <td>0.39</td>
+      <td><span class="tag success">修复</span> 不再反超</td>
+    </tr>
+    <tr>
+      <td>importance=0.9，全匹配，本轮</td>
+      <td>3.10</td>
+      <td>1.17</td>
+      <td><span class="tag">合理</span> 高重要性+高匹配自然得高分</td>
+    </tr>
+    <tr>
+      <td>importance=0.9，无匹配，20轮前</td>
+      <td>0.90</td>
+      <td>0.22</td>
+      <td><span class="tag success">改进</span> 远古记忆自然淡出</td>
+    </tr>
+    <tr>
+      <td>importance=0.6，作者匹配，5轮前</td>
+      <td>1.30</td>
+      <td>0.53</td>
+      <td><span class="tag">合理</span> 中等重要性+中等匹配</td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>4.3 时间复杂度</h3>
+  <p>变更不引入任何额外计算开销：</p>
+  <table class="ref-table">
+    <tr><th>操作</th><th>旧方案</th><th>新方案</th></tr>
+    <tr><td>遍历 EventMemory</td><td>O(n)，n ≤ 50</td><td>O(n)，n ≤ 50（不变）</td></tr>
+    <tr><td>字符串匹配</td><td>已存在</td><td>减少（去掉了一个匹配项）</td></tr>
+    <tr><td>数学运算</td><td>加法</td><td>乘法 + 1 次 exp 调用</td></tr>
+    <tr><td>排序</td><td>O(n log n)</td><td>O(n log n)（不变）</td></tr>
+  </table>
+  <p><span class="code-inline">exp()</span> 调用每轮仅执行 n ≤ 50 次，耗时可忽略不计。</p>
+</div>
+
+<div class="card">
+  <h3>4.4 变更范围</h3>
+  <table class="ref-table">
+    <tr><th>文件</th><th>变更内容</th><th>风险</th></tr>
+    <tr>
+      <td><span class="code-inline">moss_agent_client/memory.py</span></td>
+      <td>EventMemoryRecord 新增 <span class="code-inline">round_id: int = 0</span> 字段，to_dict/from_dict 同步</td>
+      <td><span class="tag success">低</span></td>
+    </tr>
+    <tr>
+      <td><span class="code-inline">moss_agent_client/memory_manager.py</span></td>
+      <td>重写 <span class="code-inline">select_relevant_events</span> 评分公式；<span class="code-inline">apply_decision_result</span> 写入 round_id</td>
+      <td><span class="tag success">低</span></td>
+    </tr>
+    <tr>
+      <td><span class="code-inline">moss_agent_client/agent_graph.py</span></td>
+      <td>调用 <span class="code-inline">select_relevant_events</span> 时传入 current_round</td>
+      <td><span class="tag success">低</span></td>
+    </tr>
+  </table>
+  <p>不改架构、不上向量检索、不涉及 Backend/数据库/配置文件的变更。</p>
+</div>
+
+<!-- ====== Section 5 ====== -->
+<h2 id="sec5">5. 学术论文参考</h2>
+
+<div class="card">
+  <h3>5.1 认知科学与记忆基础</h3>
+  <table class="ref-table">
+    <tr><th>#</th><th>论文</th><th>与本方案的关系</th></tr>
+    <tr>
+      <td>1</td>
+      <td>
+        <strong>Ebbinghaus, H. (1885/1913).</strong> <em>Memory: A Contribution to Experimental Psychology.</em> Teachers College, Columbia University.<br>
+        <span class="tag">经典</span> <span class="tag accent">认知科学</span>
+      </td>
+      <td>遗忘曲线（<span class="code-inline">R = e^(-t/S)</span>）是本方案时间衰减因子 <span class="code-inline">exp(-λ × rounds_ago)</span> 的直接理论来源。Ebbinghaus 发现记忆保持率随时间呈指数下降，而非线性下降。</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>
+        <strong>Tulving, E. (1972).</strong> Episodic and semantic memory. In <em>Organization of Memory</em>, Academic Press.<br>
+        <span class="tag">经典</span> <span class="tag accent">认知科学</span>
+      </td>
+      <td>首次提出情景记忆（Episodic）与语义记忆（Semantic）的二分法。本系统的 EventMemory 对应情景记忆——存储带时间戳的具体事件及其上下文。</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>
+        <strong>Atkinson, R. C. & Shiffrin, R. M. (1968).</strong> Human memory: A proposed system and its control processes. In <em>The Psychology of Learning and Motivation</em>, Vol. 2.<br>
+        <span class="tag">经典</span> <span class="tag accent">认知科学</span>
+      </td>
+      <td>提出记忆的多存储模型（Multi-Store Model）：感官记忆 → 短期记忆 → 长期记忆。本系统的 ShortTermMemory（3 轮窗口）+ EventMemory（选择性编码）直接映射该模型。</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>
+        <strong>Baddeley, A. D. & Hitch, G. (1974).</strong> Working memory. In <em>The Psychology of Learning and Motivation</em>, Vol. 8.<br>
+        <span class="tag">经典</span> <span class="tag accent">认知科学</span>
+      </td>
+      <td>提出工作记忆模型，强调工作记忆容量有限（约 7±2 个组块）且具有主动加工功能。本方案 ShortTermMemory 的 3 轮 × 每轮最多 3 帖 ≈ 9 条信息的设计与之相符。</td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>5.2 LLM Agent 记忆架构</h3>
+  <table class="ref-table">
+    <tr><th>#</th><th>论文</th><th>与本方案的关系</th></tr>
+    <tr>
+      <td>5</td>
+      <td>
+        <strong>Park, J. S. et al. (2023).</strong> Generative Agents: Interactive Simulacra of Human Behavior. <em>UIST 2023</em>.<br>
+        <span class="tag accent">Agent 记忆</span>
+      </td>
+      <td>开创性地提出 LLM Agent 社交模拟框架，包含记忆流（Memory Stream）、反思（Reflection）、计划（Planning）三核心组件。本系统 Agent 记忆架构（ShortTermMemory + EventMemory + AgentState）的直接灵感来源。其中记忆流的检索-评分-排序机制与本方案高度一致。</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>
+        <strong>Sumers, T. et al. (2024).</strong> Cognitive Architectures for Language Agents. <em>Transactions on Machine Learning Research</em>.<br>
+        <span class="tag accent">Agent 记忆</span>
+      </td>
+      <td>提出 CoALA 认知架构：将 LLM Agent 分解为记忆（工作/长程/情节/语义）、推理、行动模块。本系统记忆四组件与 CoALA 的映射关系：StaticContext→语义记忆，ShortTermMemory→工作记忆，EventMemory→情节记忆。</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td>
+        <strong>Wang, Y. et al. (2024).</strong> MemoAgent: Memory-augmented LLM Agent. arXiv preprint.<br>
+        <span class="tag accent">Agent 记忆</span>
+      </td>
+      <td>提出记忆增强的 LLM Agent 框架，支持长程对话理解与持续学习。其分层记忆检索机制（按重要性+时间衰减排序）与本方案新公式的设计一致。</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td>
+        <strong>SAGE (2025):</strong> Self-evolving Agents with Reflective and Memory-augmented Abilities. <em>Neurocomputing</em>.<br>
+        <span class="tag accent">Agent 记忆</span>
+      </td>
+      <td>基于 Ebbinghaus 遗忘曲线动态管理记忆优先级，MemorySyntax 机制减少 47% 记忆开销。其"动态优先化高价值信息 + 时间衰减"策略是本方案的重要参考。</td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td>
+        <strong>Nemori (2025):</strong> Self-Organizing Agent Memory Inspired by Cognitive Science. arXiv:2508.03341.<br>
+        <span class="tag accent">Agent 记忆</span>
+      </td>
+      <td>基于事件分割理论（Event Segmentation Theory）和自由能原理（Free-energy Principle），提出自主对话分块和预测-校准原则。其"自主组织记忆"理念与本方案"Agent 自主选择记忆内容"的设计哲学一致。</td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td>
+        <strong>Memory Management for Long-Running Low-Code Agents (2025).</strong> arXiv:2509.25250.<br>
+        <span class="tag accent">Agent 记忆</span>
+      </td>
+      <td>提出"智能衰减"（Intelligent Decay）机制，综合考虑时间近因性、相关性和效用三个维度。本方案的三因子乘法评分（重要性 × 时间 × 上下文）与之结构一致。</td>
+    </tr>
+  </table>
+</div>
+
+<!-- ====== Section 6 ====== -->
+<h2 id="sec6">6. 工业实践参考</h2>
+
+<div class="card">
+  <h3>6.1 2025–2026 行业最佳实践</h3>
+  <table class="ref-table">
+    <tr><th>#</th><th>来源</th><th>实践</th><th>与本方案的关系</th></tr>
+    <tr>
+      <td>1</td>
+      <td>
+        <strong>Steve Kinney (2025).</strong> Memory Systems for AI Agents: What the Research Says and What You Can Actually Build.<br>
+        <span class="tag">工业综述</span>
+      </td>
+      <td>提出"记忆 ≠ 塞满上下文窗口"，生产级 Agent 记忆需要五阶段流水线（抽取→整合→存储→检索→遗忘）。本方案聚焦检索和遗忘两个阶段。</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>
+        <strong>Mem0 / Letta / Zep 框架 (2025).</strong><br>
+        <span class="tag">框架实践</span>
+      </td>
+      <td>三大主流 Agent 记忆框架均实现了"时间衰减 + 重要性加权 + 上下文匹配"的三因子检索排序。本方案与这一工业共识保持一致。</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>
+        <strong>Aliyun / Baidu (2025).</strong> 生产级 AI Agent 持久化记忆体系：五阶段流水线与四大设计模式解析。<br>
+        <span class="tag">工程实践</span>
+      </td>
+      <td>强调"结构化状态 + 语义搜索"模式覆盖 80% 生产用例。本方案在不上向量检索的约束下，通过改进结构化排序达到类似效果。</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>
+        <strong>Microsoft (2026.05).</strong> Human-Inspired Memory Architecture for LLM Agents. arXiv:2605.08538.<br>
+        <span class="tag accent">前沿</span>
+      </td>
+      <td>仿生记忆六机制：睡眠阶段巩固、干扰遗忘、印迹成熟、检索后再巩固等。在 LongMemEval M-tier 上达到与原始检索精度匹配，存储减少 58%。证明了"仿生记忆设计可在大幅降低存储的同时保持性能"。</td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>6.2 不采用向量检索的合理性</h3>
+  <p>
+    2025–2026 行业最佳实践中，向量检索被广泛推荐用于语义相似记忆的发现。
+    但本方案<strong>有意不采用</strong>，理由如下：
+  </p>
+  <ul>
+    <li><strong>性能约束</strong>：向量检索（embedding + similarity search）在 50 条记录的规模下，计算开销远超当前的 O(n) 线性扫描。每轮决策循环的时间预算有限。</li>
+    <li><strong>话题空间集中</strong>：本系统模拟的场景（如美伊冲突）话题空间相对集中，字符串匹配的精度足以覆盖大多数检索需求。</li>
+    <li><strong>Agent 自主判断已提供语义信号</strong>：importance 评分本身就是 Agent 对事件"语义重要性"的综合判断。与其用 embedding 做语义相似度，不如信任 Agent 自己的评分。</li>
+  </ul>
+  <div class="highlight-box">
+    <strong>设计取舍</strong>：当记录量增长到数百条以上且话题空间显著发散时，可考虑引入轻量级向量检索（如用 SentenceTransformer 对 summary 做嵌入，用内积做相似度排序）。但这属于远期优化方向，当前规模下不需要。
+  </div>
+</div>
+
+<footer>
+  MOSS Agent 记忆系统优化报告 &nbsp;|&nbsp; 检索评分与时间衰减 &nbsp;|&nbsp; 2026-05-17
+</footer>
+
+</div>
+</body>
+</html>

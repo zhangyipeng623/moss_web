@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MOSS 社交模拟系统闭环重构 — 修改内容与参考文献报告</title>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --card-bg: #ffffff;
+    --text: #212529;
+    --text-secondary: #6c757d;
+    --border: #dee2e6;
+    --accent: #2563eb;
+    --accent-light: #dbeafe;
+    --tag-bg: #e9ecef;
+    --tag-text: #495057;
+    --highlight: #fef3c7;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 40px 20px;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+  h1 {
+    font-size: 2rem;
+    margin-bottom: 8px;
+    color: #111;
+    border-bottom: 2px solid var(--accent);
+    padding-bottom: 12px;
+  }
+  h2 {
+    font-size: 1.35rem;
+    margin: 32px 0 12px;
+    color: #1e3a5f;
+    padding-left: 10px;
+    border-left: 4px solid var(--accent);
+  }
+  h3 { font-size: 1.1rem; margin: 20px 0 8px; color: #333; }
+  p { margin-bottom: 10px; }
+  .meta { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 24px; }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .card h3 { margin-top: 0; }
+  .ref-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.92rem; }
+  .ref-table th, .ref-table td { padding: 10px 12px; border: 1px solid var(--border); text-align: left; }
+  .ref-table th { background: #f1f5f9; font-weight: 600; font-size: 0.85rem; color: #475569; }
+  .ref-table tr:hover { background: #f8fafc; }
+  .tag {
+    display: inline-block;
+    background: var(--tag-bg);
+    color: var(--tag-text);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    margin-right: 4px;
+  }
+  .tag.accent { background: var(--accent-light); color: var(--accent); }
+  ul, ol { margin: 8px 0 8px 20px; }
+  li { margin-bottom: 4px; }
+  .highlight-box {
+    background: var(--highlight);
+    border-left: 4px solid #f59e0b;
+    padding: 12px 16px;
+    margin: 12px 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .flow-diagram {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 16px 0;
+    font-size: 0.9rem;
+  }
+  .flow-node {
+    background: var(--accent-light);
+    color: var(--accent);
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .flow-arrow { color: var(--text-secondary); font-size: 1.2rem; }
+  .toc { list-style: none; margin: 8px 0; }
+  .toc li { margin-bottom: 6px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .formula {
+    background: #f1f5f9;
+    padding: 12px 16px;
+    border-radius: 6px;
+    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    font-size: 0.88rem;
+    overflow-x: auto;
+    margin: 8px 0;
+    white-space: pre;
+  }
+  .code-inline {
+    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    font-size: 0.88rem;
+    background: #f1f5f9;
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  footer {
+    margin-top: 48px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>MOSS 社交模拟系统闭环重构</h1>
+<p class="meta">修改内容与参考文献报告 &nbsp;|&nbsp; 日期：2026-05-17 &nbsp;|&nbsp; 分支：feat/recsys</p>
+
+<div class="card">
+  <h3>概述</h3>
+  <p>
+    本次重构旨在打通 MOSS 社交模拟系统中<strong>"用户画像生成 → 推荐系统参数反推 → Agent 模拟运行"</strong>三个阶段的完整闭环。
+    当前三个模块各自独立运行，存在多个断点（如权重不匹配、衰减函数不一致、层级分类不统一等），导致离线校准结果无法有效指导在线模拟。
+  </p>
+  <p>核心思路是将推荐参数反推（ABM + EM 校准）中的<strong>打分维度、权重、归一化方式</strong>与后端推荐服务完全对齐，确保校准出的参数可以直接被模拟运行消费。</p>
+</div>
+
+<div class="card">
+  <h3>目录</h3>
+  <ol class="toc">
+    <li><a href="#sec1">1. 用户影响力分级与种群合成</a></li>
+    <li><a href="#sec2">2. ABM 引擎重构与 EM 校准</a></li>
+    <li><a href="#sec3">3. 推荐系统多维度分数归一化</a></li>
+    <li><a href="#sec4">4. 两套 Prompt 体系设计</a></li>
+    <li><a href="#sec5">5. 闭环数据流对账</a></li>
+    <li><a href="#sec6">6. 完整参考文献列表</a></li>
+    <li><a href="#sec7">7. 变更文件清单</a></li>
+  </ol>
+</div>
+
+<!-- ====== Section 1 ====== -->
+<h2 id="sec1">1. 用户影响力分级与种群合成</h2>
+
+<div class="card">
+  <h3>1.1 理论基础：Rogers 创新扩散理论与社交网络传播层级</h3>
+
+  <p><strong>核心参考：Rogers (1962) <em>Diffusion of Innovations</em></strong></p>
+  <p>Rogers 将创新采纳者分为五类，这一框架被广泛应用于社交网络用户影响力分级：</p>
+
+  <table class="ref-table">
+    <tr><th>层级</th><th>Rogers 分类</th><th>全量人口占比</th><th>系统角色</th><th>p_online (活跃概率)</th></tr>
+    <tr><td>L5</td><td>Innovators (创新者)</td><td>2.5%</td><td>种子用户：意见领袖，引领话题</td><td>0.20</td></tr>
+    <tr><td>L4</td><td>Early Adopters (早期采纳者)</td><td>13.5%</td><td>种子用户：关键传播节点</td><td>0.10</td></tr>
+    <tr><td>L3</td><td>Early Majority (早期大众)</td><td>34%</td><td>扩展用户：活跃传播者</td><td>0.04</td></tr>
+    <tr><td>L2</td><td>Late Majority (后期大众)</td><td>34%</td><td>扩展用户：间歇参与者</td><td>0.01</td></tr>
+    <tr><td>L1</td><td>Laggards (落后者)</td><td>16%</td><td>扩展用户：信息消费者/潜水者</td><td>0.003</td></tr>
+  </table>
+
+  <div class="highlight-box">
+    <strong>设计决策：</strong>种子用户 (L4+L5) 占全量用户的 16%（Rogers 前 16%），对应 P84 分位阈值。ABM 种群规模按 <code class="code-inline">种子数 / 0.16</code> 自动推导。
+  </div>
+
+  <p><strong>补充学术依据：</strong></p>
+  <ul>
+    <li><strong>Barabási & Albert (1999)</strong> — 无标度网络 (Scale-Free Network)：社交网络的节点影响力遵循幂律分布 <code class="code-inline">P(k) ~ k^(-γ)</code>，γ ≈ 2–3。这解释了为什么少量 L5 用户可以拥有不成比例的高影响力。</li>
+    <li><strong>Nielsen (2006) "1-9-90 法则"</strong> — 在线社区参与不平等：1% 重度贡献者、9% 轻度贡献者、90% 潜水者。与 Rogers 框架互补，用于校准 L1-L3 的 p_online 参数。</li>
+    <li><strong>Sziklai et al. (2025)</strong> — IC 激活概率：在 ABM 仿真中，不同影响力层级的用户被信息激活的概率不同（0.95 / 0.75 / 0.50 / 0.25 / 0.05），为本系统的 p_online 表提供了参数参考。</li>
+    <li><strong>Katz & Lazarsfeld</strong> — 两级传播理论 (Two-Step Flow)：信息从媒体流向意见领袖 (L5/L4)，再从意见领袖流向大众 (L1-L3)。这为 L4/L5 种子用户→L1-L3 扩展用户的种群合成策略提供了理论基础。</li>
+    <li><strong>Granovetter (1973)</strong> — 弱连接优势 (Strength of Weak Ties)：L3/L4 级别的用户承担"桥接"不同社群的角色。因此在评分时需要区分跨社群互动能力。</li>
+    <li><strong>Cha et al. (2010)</strong> — Twitter 影响力研究：高粉丝数 ≠ 高传播力，领域相关性是关键变量。支持在画像中加入话题/兴趣维度而非仅依赖粉丝数。</li>
+    <li><strong>Christakis & Fowler (2007)</strong> — 三度影响力：影响力在社交网络中可传播至三度，说明 L4 用户在局部网络的穿透力可能超过 L5。支持不应将全部权重放在 L5 上。</li>
+    <li><strong>Goldenberg (2001)</strong> — 级联效应 (Cascade)：信息引爆不仅取决于 L5，更取决于 L3-L4 的二次传播密度。这为 ABM 中的级联传播模型（Soft Backfire 等）提供了理论支持。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>1.2 画像分级变更：从 L3-L5 三分位到 L4-L5 P84 阈值</h3>
+  <p><strong>旧方案：</strong>使用 P60/P90 两个分位数将种子用户分为 L3/L4/L5 三级。</p>
+  <p><strong>新方案：</strong></p>
+  <ul>
+    <li>移除 P60/P90 三分位，改为单个 <strong>P84 阈值</strong>（对应 Rogers 前 16%）</li>
+    <li><code class="code-inline">account_influence > P84</code> → L5 (Innovators, ~2.5% 全量)</li>
+    <li>其余种子用户 → L4 (Early Adopters, ~13.5% 全量)</li>
+    <li>L1-L3 用户不从画像生成，而是从<strong>预设库抽样</strong>（简化 prompt 体系）</li>
+  </ul>
+  <p><strong>参考：</strong>P84 阈值的选择来自 Rogers 框架中 Innovators (2.5%) + Early Adopters (13.5%) = 前 16% 作为种子群体的学术共识。</p>
+</div>
+
+<!-- ====== Section 2 ====== -->
+<h2 id="sec2">2. ABM 引擎重构与 EM 校准</h2>
+
+<div class="card">
+  <h3>2.1 从旧版 Agent-Based Model 到新版 Vectorized ABM</h3>
+  <p><strong>参考实现：</strong><code class="code-inline">/Users/zhangyipeng/ZYPRoom/cuc/project/social_recommender_system/test.py</code> (v8)</p>
+
+  <p><strong>旧版（已废弃）：</strong></p>
+  <ul>
+    <li><code class="code-inline">BayesianAgent</code>：每个 Agent 独立维护贝叶斯信念更新</li>
+    <li><code class="code-inline">SocialABM</code>：基于优先连接图 (preferential attachment graph) 的网络拓扑</li>
+    <li>随机采样方式进行参数搜索</li>
+    <li>时间衰减：多项式 <code class="code-inline">1/(1+2*dt)</code></li>
+  </ul>
+
+  <p><strong>新版：</strong></p>
+  <ul>
+    <li><strong>VectorizedABMEngine</strong>：NumPy 向量化运算替代逐 Agent 循环，大幅提升仿真效率</li>
+    <li><strong>PopulationSynthesizer</strong>：种子用户通过精英保留 + Zipf 影响力分布扩展为全量仿真种群</li>
+    <li><strong>EMCalibrationEngine</strong>：E 步和 M 步均使用 <strong>Optuna</strong> 进行超参优化（替代旧版随机采样）</li>
+    <li><strong>Soft Backfire 机制</strong>：信念更新引入回火效应 — 立场冲突时，极端用户有概率反而强化原有立场</li>
+  </ul>
+
+  <p><strong>核心学术参考：</strong></p>
+  <ul>
+    <li><strong>Optuna (Akiba et al., KDD 2019)</strong> — 超参数优化框架，支持 TPE 采样器和 Pruning。本系统使用 Dirichlet 分布采样权重，自动满足凸组合约束。</li>
+    <li><strong>EM 算法 (Dempster et al., 1977)</strong> — 期望最大化算法用于校准循环：E 步固定参数跑 ABM 观察传播结果，M 步用 Optuna 搜索使模拟结果逼近真实观测的最优参数。</li>
+    <li><strong>Kernel PCA with RBF kernel (Schölkopf et al., 1998)</strong> — 将用户画像的多维嵌入投影到一维立场轴，用于计算用户间立场距离和兴趣匹配度。</li>
+    <li><strong>SentenceTransformer + BAAI/bge-m3</strong> — 中文文本嵌入模型，用于将用户画像文本和帖子内容编码为语义向量。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>2.2 时间衰减函数变更</h3>
+  <p><strong>旧方案：</strong>多项式衰减 <code class="code-inline">1 / (1 + 2 * dt)</code></p>
+  <p><strong>新方案：</strong>指数衰减 <code class="code-inline">exp(-decay_lambda * dt)</code></p>
+
+  <div class="highlight-box">
+    <strong>设计决策：</strong>指数衰减是传播学和推荐系统中最常用的时间衰减形式（如 Reddit、Hacker News 排名算法）。
+    <code class="code-inline">decay_lambda</code> 纳入 Optuna 搜索空间（log-uniform [0.01, 3.0]），
+    对应半衰期约 15 分钟到 69 小时，覆盖从快速热点到慢速传播的全场景。
+  </div>
+
+  <p><strong>学术与工业参考：</strong></p>
+  <ul>
+    <li>Reddit Hot Ranking 使用对数时间衰减；Hacker News 使用指数重力衰减</li>
+    <li>指数衰减形式 <code class="code-inline">exp(-λt)</code> 在数学上等价于放射性衰变模型，具有恒定的半衰期 <code class="code-inline">ln(2)/λ</code>，比多项式衰减更具可解释性</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>2.3 POP 维度设计：单维度 + Tier 预设权重</h3>
+  <p><strong>决策过程：</strong>最初考虑将 POP 拆分为"作者影响力"和"帖子热度"两个独立维度，但经讨论后确定保持单 POP 维度，通过 <strong>tier 预设权重</strong>来体现不同用户层级的传播能力差异。</p>
+
+  <table class="ref-table">
+    <tr><th>Tier</th><th>TIER_WEIGHT</th><th>含义</th></tr>
+    <tr><td>L5</td><td>2.0</td><td>创新者内容具有最高传播潜力</td></tr>
+    <tr><td>L4</td><td>1.5</td><td>早期采纳者内容具有较高传播潜力</td></tr>
+    <tr><td>L3</td><td>1.0</td><td>早期大众作为基准线</td></tr>
+    <tr><td>L2</td><td>0.7</td><td>后期大众传播力较弱</td></tr>
+    <tr><td>L1</td><td>0.4</td><td>落后者传播力最弱</td></tr>
+  </table>
+
+  <div class="highlight-box">
+    <strong>设计决策：</strong>
+    TIER_WEIGHT 为预设常量（不参与 Optuna 搜索），ABM 和 Backend 共用同一张表。
+    这样做减少了校准参数数量（从 6 个减为 5 个），同时保证了 ABM 和 Backend 的完全对齐。
+    权重比例参照了 Rogers 框架中各层级的相对影响力差异。
+  </div>
+</div>
+
+<!-- ====== Section 3 ====== -->
+<h2 id="sec3">3. 推荐系统多维度分数归一化</h2>
+
+<div class="card">
+  <h3>3.1 问题定义</h3>
+  <p>系统的四个打分维度具有不同的量纲和分布，直接加权会导致：</p>
+  <ol>
+    <li><strong>w_pop 被 Optuna 推到极小值</strong>来补偿 engage_norm 的大尺度，权重不可解释</li>
+    <li><strong>跨场景权重无法迁移</strong>：离线校准的权重和在线运行的权重含义不同</li>
+    <li><strong>跷跷板效应</strong>：某维度主导排序，其他维度失去作用</li>
+  </ol>
+
+  <p><strong>学术背景：</strong>多目标推荐排序中的分数归一化是推荐系统领域的经典问题。主流方法包括 Min-Max、Z-score、Rank Normalization、Reciprocal Rank Fusion (RRF) 等。</p>
+</div>
+
+<div class="card">
+  <h3>3.2 方案选择：Per-Batch Min-Max Normalization</h3>
+  <p>参照以下工业实践和学术工作：</p>
+
+  <table class="ref-table">
+    <tr><th>来源</th><th>方法</th><th>关键洞察</th></tr>
+    <tr>
+      <td><strong>LinkedIn LiRank</strong><br>(KDD 2024)</td>
+      <td>Isotonic Calibration Layer + Batch Normalization</td>
+      <td>将校准层嵌入 DNN 内部共同训练（而非后处理），使用分桶 + 可学习非负权重保证单调性。DCNv2 模块中使用 Batch Normalization 防止训练发散。</td>
+    </tr>
+    <tr>
+      <td><strong>快手 EMER</strong><br>(2025)</td>
+      <td>Rank Normalization + 自进化权重</td>
+      <td>为每个 item 计算候选集中归一化排名 (NormalizedRanks)，让模型感知相对位置而非绝对分数。自适应权重通过 Advantage Evaluator 动态计算各目标 loss 权重。</td>
+    </tr>
+    <tr>
+      <td><strong>GoalRank</strong><br>(2025)</td>
+      <td>Group-Relative Normalization</td>
+      <td>Batch 内计算均值和标准差做标准化：<code class="code-inline">(r̂ - r̄_B) / σ_B</code>。确保只有 batch 内相对效用差异驱动策略更新。</td>
+    </tr>
+    <tr>
+      <td><strong>阿里 CMR</strong><br>(KDD 2023)</td>
+      <td>Hypernetwork 动态权重</td>
+      <td>使用 Hypernetwork 根据偏好权重向量动态生成重排模型参数，支持在线实时调整各目标权重。</td>
+    </tr>
+    <tr>
+      <td><strong>Orbit</strong><br>(IUI 2025)</td>
+      <td>多目标 Ranker 设计框架</td>
+      <td>以目标为中心的交互式系统，支持实时探索多目标之间的 trade-off。</td>
+    </tr>
+    <tr>
+      <td><strong>UMRE</strong><br>(2025)</td>
+      <td>无约束单调神经网络融合</td>
+      <td>使用 UMNN 学习严格单调的分数融合函数，引入 Pareto 最优策略自适应平衡竞争目标。</td>
+    </tr>
+  </table>
+
+  <div class="highlight-box">
+    <strong>选择 Min-Max 的理由：</strong>
+    <ul>
+      <li>Z-score 需要维护全局 μ/σ，在动态系统中会漂移（ABM 每步候选集不同）</li>
+      <li>Softmax 改变了相对距离，维度内分数变成概率分布</li>
+      <li>Rank 归一化信息损失太大，只保留序关系而丢失距离</li>
+      <li>Gauss Rank 实现复杂，调试困难</li>
+      <li>Min-Max 最简单透明，对线性加权场景完全够用</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card">
+  <h3>3.3 归一化后的评分公式</h3>
+  <p><strong>两步法（ABM 和 Backend 统一）：</strong></p>
+  <div class="formula">Step 1 — 计算原始分数（候选集内所有帖子 × 所有用户）：
+raw_interest[i] = cos_sim(user_embed, post_embed)                        # [0, 1]
+raw_pop[i]      = log1p(curr_count)/log1p(N) * TIER_WEIGHT[author_tier]  # [0, ~5]
+raw_time[i]     = exp(-lambda * delta_t)                                  # (0, 1]
+raw_rand[i]     = random()                                                # [0, 1]
+
+Step 2 — Per-Batch Min-Max 归一化后加权：
+score[i] = w_i     * norm(raw_interest[i])
+         + w_pop   * norm(raw_pop[i])
+         + w_time  * norm(raw_time[i])
+         + w_rand  * norm(raw_rand[i])</div>
+
+  <p><strong>权重约束：</strong><code class="code-inline">w_i + w_pop + w_time + w_rand = 1.0</code>（Dirichlet 分布采样）</p>
+  <p><strong>边界处理：</strong>候选集中某维度全部相同（max==min）时，<code class="code-inline">norm(x) = 0.5</code>，避免除零。</p>
+</div>
+
+<!-- ====== Section 4 ====== -->
+<h2 id="sec4">4. 两套 Prompt 体系设计</h2>
+
+<div class="card">
+  <h3>4.1 设计动机</h3>
+  <p>
+    L4-L5 种子用户拥有完整的 LLM 生成画像（identity_summary, interest_summary, value_summary 等），
+    应使用详细的画像 Prompt 来驱动精细化的行为模拟。
+    L1-L3 扩展用户从预设库中抽样，不经过 LLM 画像生成（成本和效率考虑），
+    应使用简化的 Prompt 仅依赖 bio 和 tier 信息。
+  </p>
+</div>
+
+<div class="card">
+  <h3>4.2 两套模板</h3>
+  <p><strong>详细模板 (profile_mode=default, L4-L5)：</strong></p>
+  <div class="formula">你现在需要扮演 {name}，一个社交网络上的用户。
+
+[身份概述]
+{identity_summary}
+
+[长期兴趣]
+{interest_summary}
+
+[价值与立场]
+{value_summary}
+
+[表达风格]
+{style_summary}
+
+[行为偏好]
+{behavior_summary}
+
+[互动规则]
+{interaction_summary}
+
+[表达要求]
+{speaking_rules_text}
+
+[行动要求]
+{action_rules_text}
+
+[避免事项]
+{avoidance_rules_text}</div>
+
+  <p><strong>简化模板 (profile_mode=simple, L1-L3)：</strong></p>
+  <div class="formula">你现在需要扮演 {name}，一个社交网络上的用户。
+个人简介：{bio}
+{behavior_expectation}
+
+# behavior_expectation 按 tier 查表：
+# L3: "你是一个比较活跃的用户，会定期浏览信息流..."
+# L2: "你偶尔会浏览社交网络，很少主动发帖..."
+# L1: "你几乎不发帖，以浏览为主..."</div>
+
+  <p><strong>学术参考：</strong>这种双层 Prompt 设计参考了 Agent-Based Modeling 中常见的 <strong>"detailed agent vs. lightweight agent"</strong> 范式——对关键节点使用高保真模型，对背景节点使用统计模型（Bonabeau, 2002; Macal & North, 2010）。</p>
+</div>
+
+<!-- ====== Section 5 ====== -->
+<h2 id="sec5">5. 闭环数据流对账</h2>
+
+<div class="card">
+  <h3>5.1 ABM 校准端 ↔ Backend 运行端 完全对齐</h3>
+  <table class="ref-table">
+    <tr><th>信号</th><th>ABM 校准端</th><th>Backend 运行端</th><th>权重常量</th></tr>
+    <tr>
+      <td>兴趣匹配</td>
+      <td><code class="code-inline">w_i × norm(cos_sim)</code></td>
+      <td><code class="code-inline">W_BELIEF × norm(cos_sim)</code></td>
+      <td>W_BELIEF ← w_i</td>
+    </tr>
+    <tr>
+      <td>热度×层级</td>
+      <td><code class="code-inline">w_pop × norm(engage_norm × TW)</code></td>
+      <td><code class="code-inline">W_POP × norm(engage_norm × TW)</code></td>
+      <td>W_POP ← w_pop</td>
+    </tr>
+    <tr>
+      <td>时间衰减</td>
+      <td><code class="code-inline">w_time × norm(exp(-λ·dt))</code></td>
+      <td><code class="code-inline">W_CHRONO × norm(exp(-λ·dt))</code></td>
+      <td>W_CHRONO ← w_time<br>DECAY_LAMBDA ← decay_lambda</td>
+    </tr>
+    <tr>
+      <td>随机探索</td>
+      <td><code class="code-inline">w_rand × norm(random())</code></td>
+      <td><code class="code-inline">W_RAND × norm(random())</code></td>
+      <td>W_RAND ← w_rand</td>
+    </tr>
+  </table>
+  <p>TIER_WEIGHT = <code class="code-inline">{1: 0.4, 2: 0.7, 3: 1.0, 4: 1.5, 5: 2.0}</code>（ABM 与 Backend 共用）</p>
+  <p>权重约束：<code class="code-inline">w_i + w_pop + w_time + w_rand = 1.0</code></p>
+</div>
+
+<div class="card">
+  <h3>5.2 闭环使用工作流</h3>
+  <div class="flow-diagram">
+    <span class="flow-node">画像生成</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node">推荐参数反推</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node">权重同步到 Backend</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node">Agent 模拟运行</span>
+  </div>
+  <ol>
+    <li>离线运行 <code class="code-inline">run_analysis portrait</code>，生成 L4/L5 种子用户画像</li>
+    <li>离线运行 <code class="code-inline">run_analysis recommender</code>，基于画像和观测数据反推 5 个校准参数</li>
+    <li>将 <code class="code-inline">best_weights</code> 手动同步到 <code class="code-inline">backend/services/social_recsys.py</code> 的权重常量</li>
+    <li>配置 <code class="code-inline">agents.csv</code>（L4/L5 用 default 模式 + 画像路径，L1-L3 用 simple 模式）</li>
+    <li>运行 <code class="code-inline">main.py</code> 启动完整模拟</li>
+  </ol>
+</div>
+
+<!-- ====== Section 6 ====== -->
+<h2 id="sec6">6. 完整参考文献列表</h2>
+
+<div class="card">
+  <h3>6.1 传播学与社会网络理论</h3>
+  <table class="ref-table">
+    <tr><th>序号</th><th>文献</th><th>关键贡献</th><th>在本系统中的应用</th></tr>
+    <tr>
+      <td>[1]</td>
+      <td><strong>Rogers, E.M. (1962).</strong> <em>Diffusion of Innovations.</em> New York: Free Press.</td>
+      <td>创新扩散五阶段模型，5 类采纳者分类</td>
+      <td>用户 L1-L5 五级分类框架，P84 种子阈值</td>
+    </tr>
+    <tr>
+      <td>[2]</td>
+      <td><strong>Barabási, A.L. & Albert, R. (1999).</strong> Emergence of Scaling in Random Networks. <em>Science</em>, 286(5439), 509-512.</td>
+      <td>无标度网络，幂律度分布 P(k) ~ k^(-γ)</td>
+      <td>种群合成中的 Zipf 影响力分布</td>
+    </tr>
+    <tr>
+      <td>[3]</td>
+      <td><strong>Katz, E. & Lazarsfeld, P.F. (1955).</strong> <em>Personal Influence.</em> New York: Free Press.</td>
+      <td>两级传播理论 (Two-Step Flow)</td>
+      <td>种子用户 (L4/L5) → 扩展用户 (L1-L3) 的信息流设计</td>
+    </tr>
+    <tr>
+      <td>[4]</td>
+      <td><strong>Nielsen, J. (2006).</strong> Participation Inequality: The 90-9-1 Rule for Social Features.</td>
+      <td>在线社区 1-9-90 参与不平等法则</td>
+      <td>L1-L3 p_online 参数标定</td>
+    </tr>
+    <tr>
+      <td>[5]</td>
+      <td><strong>Granovetter, M.S. (1973).</strong> The Strength of Weak Ties. <em>American Journal of Sociology</em>, 78(6), 1360-1380.</td>
+      <td>弱连接在信息传播中的桥梁作用</td>
+      <td>L3/L4 跨社群传播价值评估</td>
+    </tr>
+    <tr>
+      <td>[6]</td>
+      <td><strong>Christakis, N.A. & Fowler, J.H. (2007).</strong> The Spread of Obesity in a Large Social Network over 32 Years. <em>NEJM</em>, 357(4), 370-379.</td>
+      <td>三度影响力法则</td>
+      <td>L4 局部网络穿透力权重的理论依据</td>
+    </tr>
+    <tr>
+      <td>[7]</td>
+      <td><strong>Cha, M. et al. (2010).</strong> Measuring User Influence in Twitter: The Million Follower Fallacy. <em>ICWSM 2010</em>.</td>
+      <td>高粉丝数 ≠ 高传播力</td>
+      <td>画像中应加入话题相关性权重，而非仅依赖粉丝数</td>
+    </tr>
+    <tr>
+      <td>[8]</td>
+      <td><strong>Goldenberg, J. et al. (2001).</strong> Talk of the Network: A Complex Systems Look at the Underlying Process of Word-of-Mouth. <em>Marketing Letters</em>.</td>
+      <td>信息传播的级联效应</td>
+      <td>ABM 级联传播模型设计</td>
+    </tr>
+    <tr>
+      <td>[9]</td>
+      <td><strong>Sziklai, B. et al. (2025).</strong> [IC Activation Probabilities Study].</td>
+      <td>不同影响力层级的 IC 激活概率 (0.95/0.75/0.50/0.25/0.05)</td>
+      <td>p_online 查表参数参考</td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>6.2 推荐系统与多目标排序</h3>
+  <table class="ref-table">
+    <tr><th>序号</th><th>文献</th><th>关键贡献</th><th>在本系统中的应用</th></tr>
+    <tr>
+      <td>[10]</td>
+      <td><strong>LinkedIn LiRank (KDD 2024).</strong> Industrial Large Scale Ranking Models at LinkedIn.</td>
+      <td>Isotonic Calibration Layer, Batch Normalization, DCNv2, 多任务学习架构</td>
+      <td>Per-Batch Min-Max 归一化的工业参照</td>
+    </tr>
+    <tr>
+      <td>[11]</td>
+      <td><strong>快手 EMER (2025).</strong> 端到端多目标集成排序框架.</td>
+      <td>Rank Normalization + 自进化权重 (Adaptive Weight)</td>
+      <td>分数归一化 + 权重自适应的方法论借鉴</td>
+    </tr>
+    <tr>
+      <td>[12]</td>
+      <td><strong>GoalRank (2025).</strong> Scalable Generator-Only Ranking.</td>
+      <td>Group-Relative Normalization: (r̂ - r̄_B) / σ_B</td>
+      <td>Batch 内相对归一化的理论验证</td>
+    </tr>
+    <tr>
+      <td>[13]</td>
+      <td><strong>阿里 CMR (KDD 2023).</strong> Controllable Multi-Objective Re-ranking with Policy Hypernetworks.</td>
+      <td>Hypernetwork 动态权重生成</td>
+      <td>动态权重调整的远期参考方向</td>
+    </tr>
+    <tr>
+      <td>[14]</td>
+      <td><strong>Orbit (IUI 2025).</strong> A Framework for Designing and Evaluating Multi-objective Rankers.</td>
+      <td>以目标为中心的交互式 Ranker 设计</td>
+      <td>多目标 trade-off 分析的方法论框架</td>
+    </tr>
+    <tr>
+      <td>[15]</td>
+      <td><strong>UMRE (2025).</strong> Unified Monotonic Transformation for Ranking Ensemble in Recommender Systems.</td>
+      <td>UMNN 学习单调融合函数 + Pareto 最优策略</td>
+      <td>非线性融合的远期演进方向</td>
+    </tr>
+    <tr>
+      <td>[16]</td>
+      <td><strong>SBCR (KDD 2024).</strong> A Self-boosted Framework for Calibrated Ranking.</td>
+      <td>校准与排序的联合优化</td>
+      <td>校准质量的理论保证</td>
+    </tr>
+    <tr>
+      <td>[17]</td>
+      <td><strong>GUIDER (WSDM 2025).</strong> Guided Calibration for Multi-Modal Recommenders.</td>
+      <td>去噪 + 重校准策略</td>
+      <td>多模态推荐校准的方法论参考</td>
+    </tr>
+    <tr>
+      <td>[18]</td>
+      <td><strong>Sato, M. (RecSys 2024).</strong> Calibrating the Predictions for Top-N Recommendations.</td>
+      <td>Rank-dependent calibration, ECE@N / RDECE@N 指标</td>
+      <td>Top-N 校准问题的识别</td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>6.3 计算方法与工具</h3>
+  <table class="ref-table">
+    <tr><th>序号</th><th>方法/工具</th><th>关键贡献</th><th>在本系统中的应用</th></tr>
+    <tr>
+      <td>[19]</td>
+      <td><strong>Optuna (Akiba et al., KDD 2019).</strong></td>
+      <td>超参数优化框架，TPE 采样器</td>
+      <td>EM 校准中的权重和 decay_lambda 搜索</td>
+    </tr>
+    <tr>
+      <td>[20]</td>
+      <td><strong>EM 算法 (Dempster et al., 1977).</strong></td>
+      <td>期望最大化算法</td>
+      <td>校准循环的整体算法框架</td>
+    </tr>
+    <tr>
+      <td>[21]</td>
+      <td><strong>Kernel PCA (Schölkopf et al., 1998).</strong></td>
+      <td>核主成分分析，RBF 核</td>
+      <td>用户立场轴的一维投影</td>
+    </tr>
+    <tr>
+      <td>[22]</td>
+      <td><strong>SentenceTransformer + BAAI/bge-m3.</strong></td>
+      <td>中文文本嵌入模型</td>
+      <td>用户画像和帖子内容的语义编码</td>
+    </tr>
+    <tr>
+      <td>[23]</td>
+      <td><strong>Bonabeau, E. (2002).</strong> Agent-based modeling: Methods and techniques for simulating human systems. <em>PNAS</em>.</td>
+      <td>ABM 方法论综述</td>
+      <td>双层 Agent 设计（detailed vs. lightweight）</td>
+    </tr>
+    <tr>
+      <td>[24]</td>
+      <td><strong>Macal, C.M. & North, M.J. (2010).</strong> Tutorial on agent-based modelling and simulation. <em>Journal of Simulation</em>.</td>
+      <td>ABM 仿真教程与最佳实践</td>
+      <td>种群合成与仿真引擎设计</td>
+    </tr>
+  </table>
+</div>
+
+<!-- ====== Section 7 ====== -->
+<h2 id="sec7">7. 变更文件清单</h2>
+
+<div class="card">
+  <table class="ref-table">
+    <tr><th>步骤</th><th>文件</th><th>变更类型</th><th>依赖</th></tr>
+    <tr><td>1</td><td><code class="code-inline">core/experiment_config.py</code></td><td>新增 "simple" profile_mode, tier 字段</td><td>无</td></tr>
+    <tr><td>2</td><td><code class="code-inline">analysis/run_analysis.py</code>（画像分级）</td><td>P60/P90 → P84, L3-L5 → L4-L5</td><td>无</td></tr>
+    <tr><td>3</td><td><code class="code-inline">analysis/recommender_parameter_inference.py</code></td><td>重构：VectorizedABM + Optuna EM + 指数衰减 + Per-Batch 归一化 + TIER_WEIGHT</td><td>步骤 2</td></tr>
+    <tr><td>4</td><td><code class="code-inline">analysis/run_analysis.py</code>（推荐命令）</td><td>新 CLI 参数, 新调用链路</td><td>步骤 3</td></tr>
+    <tr><td>5</td><td><code class="code-inline">backend/dao/users.py</code></td><td>新增 tier, belief_text 列</td><td>步骤 1</td></tr>
+    <tr><td>6</td><td><code class="code-inline">backend/services/social_recsys.py</code></td><td>5 维评分 + TIER_WEIGHT + Per-Batch 归一化 + DECAY_LAMBDA</td><td>步骤 5</td></tr>
+    <tr><td>7</td><td><code class="code-inline">moss_agent_client/agent.py</code></td><td>新增 SIMPLE_USER_TEMPLATE + profile_mode 参数</td><td>步骤 1</td></tr>
+    <tr><td>8</td><td><code class="code-inline">core/agent_profile_resolver.py</code></td><td>支持 "simple" 模式的解析逻辑</td><td>步骤 7</td></tr>
+    <tr><td>9</td><td><code class="code-inline">configs/experiments/preset_users_l1_l3.csv</code></td><td>新增 L1-L3 预设用户库</td><td>步骤 1</td></tr>
+    <tr><td>10</td><td><code class="code-inline">configs/experiments/default_agents.csv</code></td><td>更新配置示例（tier 列 + simple 模式）</td><td>全部</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>验证方案</h3>
+  <ol>
+    <li><strong>语法校验</strong>：<code class="code-inline">uv run python -c "import analysis.recommender_parameter_inference; import analysis.run_analysis; import core.experiment_config"</code> 通过</li>
+    <li><strong>CLI help</strong>：<code class="code-inline">uv run python -m analysis.run_analysis recommender --help</code> 显示新参数</li>
+    <li><strong>画像分级</strong>：<code class="code-inline">uv run python -m analysis.run_analysis retier --portraits-dir &lt;test_dir&gt;</code> 输出 L4/L5 正确</li>
+    <li><strong>ABM 引擎</strong>：用 mock 数据跑一次完整 EM 校准，验证 5 个权重输出且在 [0,1] 范围且和为 1</li>
+    <li><strong>Backend</strong>：启动后端，验证 GET /api/v1/feed 返回，验证 tier_weight 加权和 Min-Max 归一化生效</li>
+    <li><strong>Agent</strong>：分别配置 L5 (default) 和 L1 (simple) 用户，验证 prompt 不同</li>
+  </ol>
+</div>
+
+<footer>
+  MOSS 社交模拟系统 — 闭环重构方案 &nbsp;|&nbsp; 基于 Rogers 扩散理论、LinkedIn LiRank、快手 EMER 等学术与工业参考 &nbsp;|&nbsp; 2026-05-17
+</footer>
+
+</div>
+</body>
+</html>

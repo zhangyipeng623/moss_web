@@ -536,6 +536,72 @@ def run_retier_command(args: argparse.Namespace) -> None:
     )
 
 
+def _generate_calibration_yaml(
+    portraits_dir: str,
+    data_file: str,
+    best_weights: dict,
+    fit_diagnostics: dict,
+    embedding_model: str,
+    num_seed_users: int,
+    abm_population_size: int,
+    calibrated_p_base: dict,
+) -> str:
+    """在 portraits_dir 下生成 calibration_profile.yaml。"""
+    import yaml
+
+    from core.calibration_profile import (
+        CalibrationProfile,
+        EmbeddingConfig,
+        MetaInfo,
+        RecommenderConfig,
+        RecommenderWeights,
+    )
+
+    profile = CalibrationProfile(
+        meta=MetaInfo(
+            generated_at=datetime.now().isoformat(),
+            portraits_dir=str(Path(portraits_dir).resolve()),
+            num_seed_users=num_seed_users,
+            abm_population_size=abm_population_size,
+            input_data_file=str(Path(data_file).name),
+        ),
+        recommender=RecommenderConfig(
+            weights=RecommenderWeights(
+                w_interest=best_weights.get("w_i", 0.35),
+                w_popularity=best_weights.get("w_pop", 0.25),
+                w_time=best_weights.get("w_time", 0.25),
+                w_random=best_weights.get("w_rand", 0.15),
+            ),
+            decay_lambda=best_weights.get("decay_lambda", 0.5),
+            calibrated_p_base=calibrated_p_base or {},
+            fit_diagnostics=fit_diagnostics or {},
+        ),
+        embedding=EmbeddingConfig(model_name=embedding_model),
+    )
+
+    yaml_path = Path(portraits_dir) / "calibration_profile.yaml"
+    yaml_content = yaml.safe_dump(
+        profile.model_dump(),
+        allow_unicode=True,
+        default_flow_style=False,
+        sort_keys=False,
+    )
+
+    header = (
+        f"# calibration_profile.yaml\n"
+        f"# 自动生成于：{profile.meta.generated_at}（recommender 命令输出）\n"
+        f"# 用途：唯一的模拟配置文件，包含离线校准结果 + 在线模拟全部参数\n"
+        f"# 位置：{yaml_path}\n"
+        f"# 使用：python main.py --config {yaml_path}\n"
+        f"\n"
+    )
+    with open(yaml_path, "w", encoding="utf-8") as f:
+        f.write(header + yaml_content)
+
+    print(f"[calibration] 配置文件已生成: {yaml_path}")
+    return str(yaml_path)
+
+
 def run_recommender_command(args: argparse.Namespace) -> None:
     """执行推荐参数反推命令（v8 向量化 ABM + Optuna EM）。"""
     from analysis.recommender_parameter_inference import (
@@ -614,6 +680,19 @@ def run_recommender_command(args: argparse.Namespace) -> None:
     )
     _write_json(output_path, result)
     print(f"推荐参数结果已写入：{output_path}")
+
+    # 8. 生成 calibration_profile.yaml（闭环配置文件）
+    if portraits_dir and best_weights:
+        _generate_calibration_yaml(
+            portraits_dir=str(portraits_dir),
+            data_file=args.data_file,
+            best_weights=best_weights,
+            fit_diagnostics=inferer.weight_fit_diagnostics,
+            embedding_model=args.embedding_model,
+            num_seed_users=len(personas),
+            abm_population_size=num_agents,
+            calibrated_p_base=inferer.calibrated_probs,
+        )
 
 
 def _resolve_portrait_source(

@@ -153,6 +153,7 @@ agent_alpha,Alpha,我是军事议题分析用户,default,../../analysis_outputs/
 ```bash
 uv run python -m analysis.run_analysis recommender \
   --data-file /path/to/post_original_4.xlsx \
+  --portraits-dir analysis_outputs/portraits/ \
   --output analysis_outputs/recommender/post_original_4.json
 ```
 
@@ -164,37 +165,20 @@ analysis_outputs/recommender/<输入文件名>.json
 
 #### 用户需要提供的输入结构
 
-推荐参数脚本默认按旧版推荐系统的 Excel 方式取数，不需要你先手工整理成 JSON。
+推荐参数脚本需要两类输入：
 
-你只需要提供一个内容观测表文件：
+1. **内容观测表**（`--data-file`）：支持 `.xlsx` 或 `.csv`，默认读取以下列：
+   - `文章ID`、`观看量`、`转发`、`分享`、`Quotes`
+   - 如列名不同，可通过 `--retweet-columns`、`--view-column`、`--id-column` 覆盖
 
-- `--data-file /path/to/post_original_4.xlsx`
-
-这个表可以是 `.xlsx`，也可以是 `.csv`。默认会按旧版
-`/Users/zhangyipeng/ZYPRoom/cuc/project/social_recommender_system/social_recommender_system8.py`
-里的口径读取以下列：
-
-- `文章ID`
-- `观看量`
-- `转发`
-- `分享`
-- `Quotes`
-
-脚本会自动做这些事：
-
-- 读取整张表
-- 把 `转发 + 分享 + Quotes` 汇总成总转发量
-- 过滤 `总转发量 > 0` 且 `观看量 > 100` 的内容
-- 生成 `story_id / repost_count / view_count` 观测记录
-- 再进入代表内容筛选和推荐参数反推流程
-- 反推阶段使用终态多目标拟合，同时约束缩放后的 `曝光量`、`转发量` 和 `转发率`
-- 模拟器固定 `p_online=0.1`、固定 `duration=24` 小时，`decay_lambda` 继续参与搜索
+2. **用户画像目录**（`--portraits-dir`）：由 `portrait --batch` 生成的画像 JSON 目录，用于语义处理（立场轴计算、兴趣匹配）和种群扩增。种子用户代表总人口的 10%（对应 90:9:1 法则），ABM 规模自动按 `种子数 × 10` 计算。
 
 如果你的列名和默认值不同，可以显式覆盖：
 
 ```bash
 uv run python -m analysis.run_analysis recommender \
   --data-file /path/to/your_posts.xlsx \
+  --portraits-dir analysis_outputs/portraits/ \
   --retweet-columns 转发数,分享数,引用数 \
   --view-column 曝光量 \
   --id-column 帖子ID
@@ -202,56 +186,50 @@ uv run python -m analysis.run_analysis recommender \
 
 常用可调参数：
 
+- `--portraits-dir`
+  用户画像 JSON 目录路径，用于立场轴和兴趣匹配（推荐提供）
 - `--anchor-percentile`
   鲁棒缩放锚点分位数，默认 `0.8`
 - `--max-iterations`
   EM 校准最大迭代次数，默认 `3`
 - `--num-agents`
-  ABM 代理数，默认 `1500`
-- `--avg-degree`
-  平均连接度，默认 `20`
-- `--verified-ratio`
-  认证账号比例，默认 `0.01`
+  ABM 代理数，未指定时按 `种子数 × 10` 自动推算
 - `--min-scaled-target`
-  最小缩放目标，默认 `3`
-- `--n-trials-per-story`
-  单条内容概率校准试验次数，默认 `40`
-- `--n-trials-per-weight`
-  权重优化试验次数，默认 `100`
-- `--n-simulations-per-trial`
-  每次试验的模拟次数，默认 `5`
+  最小缩放目标，默认 `5`
+- `--embedding-model`
+  文本嵌入模型，默认 `BAAI/bge-m3`
+- `--n-cpu`
+  并行校准使用的 CPU 核心数，默认 `4`
 
-#### 生成结果会存在哪里
+#### 新版流程说明
 
-- 如果显式传了 `--output`，就写到你指定的位置。
-- 如果没有传 `--output`，默认写到 `analysis_outputs/recommender/<输入文件名>.json`。
+新版采用**向量化 ABM + Optuna EM**引擎（对应 `social_recommender_system/test.py` v8），与旧版的关键差异：
+
+1. **语义处理**：使用 Kernel PCA (RBF) 将用户画像嵌入投影到一维立场轴，结合话题嵌入计算兴趣匹配度
+2. **种群合成**：种子用户（L3-L5）通过精英保留 + Zipf 影响力分布扩展为全量仿真种群，替代旧版的优先连接图
+3. **Soft Backfire**：信念更新引入回火效应 — 立场冲突时，极端用户有概率反而强化原有立场
+4. **Optuna 搜索**：E 步和 M 步均使用 Optuna 进行超参优化，替代旧版随机采样
 
 #### 生成结果如何具体使用
 
 输出文件中最重要的字段包括：
 
 - `representative_stories`
-- `calibrated_probs`
-- `best_weights`
+- `calibrated_probs`（每条内容的 `p_base` 概率）
+- `best_weights`（`w_i`、`w_pop`、`w_time`、`w_rand`）
 - `weight_fit_diagnostics`
 
 当前系统运行时还不会自动加载这个结果文件，所以它的使用方式是手动同步：
 
 1. 打开生成结果中的 `best_weights`。
-2. 读取其中的 `chrono`、`belief`、`pop`、`rand`。
-3. 把这些值写入 [social_recsys.py](/Users/zhangyipeng/ZYPRoom/cuc/project/moss_web/backend/services/social_recsys.py) 顶部的权重常量。
+2. 将权重映射到 [social_recsys.py](/Users/zhangyipeng/ZYPRoom/cuc/project/moss_web/backend/services/social_recsys.py) 顶部的权重常量：
 
-当前对应位置是：
-
-- `W_CHRONO`
-- `W_BELIEF`
-- `W_POP`
-- `W_RAND`
-
-注意：
-
-- `best_weights` 里的 `decay_lambda` 目前是离线推断结果，当前在线推荐实现还没有直接消费这个字段。
-- 如果后续你想让系统自动读取推荐参数文件，再单独把这个 JSON 文件接进配置层即可。
+| best_weights 字段 | 对应常量 | 含义 |
+|-------------------|----------|------|
+| `w_i` | `W_BELIEF` | 兴趣/立场匹配度 |
+| `w_pop` | `W_POP` | 源用户影响力 |
+| `w_time` | `W_CHRONO` | 时间衰减 |
+| `w_rand` | `W_RAND` | 随机探索 |
 
 ## 与运行系统的关系
 

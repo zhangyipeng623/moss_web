@@ -1,0 +1,463 @@
+High prevalence of penicillin-resistant group B Streptococcus among pregnant women in Northwest Ethiopia | Scientific Reports
+https://www.nature.com/articles/s41598-025-15472-0?error=cookies_not_supported&code=a56d7725-5b8c-4826-99d3-71eecc03ef30
+
+<!DOCTYPE html>
+
+High prevalence of penicillin-resistant group B Streptococcus among pregnant women in Northwest Ethiopia | Scientific Reports
+
+Skip to main content
+
+Thank you for visiting nature.com. You are using a browser version with limited support for CSS. To obtain
+the best experience, we recommend you use a more up to date browser (or turn off compatibility mode in
+Internet Explorer). In the meantime, to ensure continued support, we are displaying the site without styles
+and JavaScript.
+
+View all journals
+
+Search
+
+Log in
+
+Content
+Explore content
+
+About the journal
+
+Publish with us
+
+Sign up for alerts
+
+RSS feed
+
+High prevalence of penicillin-resistant group B Streptococcus among pregnant women in Northwest Ethiopia
+
+Download PDF
+
+Download PDF
+
+Article
+
+Open access
+
+Published: 17 August 2025
+
+High prevalence of penicillin-resistant group B Streptococcus among pregnant women in Northwest Ethiopia
+
+Getaneh Alemayehu1, 
+
+Alene Geteneh 
+ORCID: orcid.org/0000-0002-7153-48492, 
+
+Mesfin Dessale2, 
+
+Efrem Ayalew3, 
+
+Geberselasie Demeke4, 
+
+Alemayehu Reta4 & 
+
+…
+
+Mulugeta Kiros 
+ORCID: orcid.org/0000-0002-7909-77195 
+Show authors
+
+Scientific Reports
+
+volume 15, Article number: 30047 (2025) Cite this article
+
+4785 Accesses
+
+3 Citations
+
+Metrics details
+
+Subjects
+
+Infectious-disease diagnostics
+
+Infectious diseases
+
+Microbiology
+
+Abstract
+
+Group B Streptococcus (GBS) is a normal constituent of the female genital and gastrointestinal flora but remains a leading cause of perinatal bacterial infections, including endometritis, bacteremia, chorioamnionitis, and urinary tract infections in pregnant women. In Ethiopia, reported GBS colonization rates among pregnant women range from 7.2 to 25.5%. This study aimed to determine the prevalence, antimicrobial susceptibility patterns, and associated factors of GBS colonization among pregnant women attending antenatal care (ANC) at Debre Markos Comprehensive Specialized Hospital, Northwest Ethiopia. An institutional-based cross-sectional study was conducted from March 1 to May 30, 2021. After obtaining written consent, sociodemographic data were collected using a structured questionnaire, conveniently. A total of 210 recto-vaginal swabs were collected, inoculated into Todd-Hewitt broth, and sub-cultured on 5% blood agar. Antimicrobial susceptibility testing was performed using the disk diffusion method following Clinical and Laboratory Standards Institute 2020 guidelines. Data were entered and cleaned in Epi Data version 3.1 and analyzed using SPSS version 20. Binary logistic regression identified associations between variables, with a P value ≤ 0.05 considered statistically significant. The overall GBS colonization was 13.3% (28/210). Married women had significantly higher odds of colonization (AOR 5.774; 95% CI 1.074–31.03; P = 0.041), while those with a history of abortion had lower odds (AOR 0.294; 95% CI 0.102–0.850; P = 0.024). Most isolates were susceptible to chloramphenicol (96.4%). Resistance rates were highest for erythromycin (71.4%) and penicillin (67.9%), followed by ampicillin (64.3%), azithromycin (46.4%), vancomycin (46.4%), and ceftriaxone (32.1%). Half of the isolates were multidrug-resistant. GBS colonization among pregnant women in the study area warrants clinical attention due to its associated high antibiotic resistance. Being married and abortion had statistically significant associations with colonization. Therefore, clinicians could implement routine GBS screening for all pregnant women attending ANC to reduce GBS colonization. Routine GBS screening may help reduce neonatal sepsis, pneumonia, and meningitis by guiding timely intrapartum antibiotic prophylaxis.
+
+Similar content being viewed by others
+
+Antimicrobial resistance in colonizing group B Streptococcus among pregnant women from a hospital in Vietnam
+
+Article
+Open access
+21 October 2021
+
+Molecular characterization of Streptococcus agalactiae strains isolated from pregnant women
+
+Article
+Open access
+18 February 2025
+
+Prevalence of bacterial vaginosis and its associated factors among pregnant women attending antenatal care clinics at public hospitals in West Shoa Zone, Oromia, Ethiopia
+
+Article
+Open access
+14 September 2024
+
+Introduction
+
+Group B Streptococci (GBS) are a class of the normal flora of the female genital and gastrointestinal tract. It is the major cause of bacterial infections in the perinatal period, including endometritis, bacteremia, amnionitis, and urinary tract infections in pregnant women. It is high in the rectum, mild in the vagina, and low in the cervix. It is also the most common cause of morbidity and mortality in newborn individuals1,2. It is an encapsulated Gram-positive cocci that usually produce a narrow zone of beta-hemolysis on blood agar. It belongs to Lancefield group B. There are 10 GBS serotypes (Ia, Ib, and II to IX) based on variations in the capsular polysaccharide, a major virulence factor that helps the microorganism to evade the host’s defense mechanisms3,4,5,6. It is the most frequent pathogen isolated from neonates with invasive bacterial diseases and responsible for serious infections in newborns1,7,8. There are two clinical syndromes of invasive GBS disease; early-onset disease (EOD) and Late-onset disease (LOD). Early-onset disease (EOD) has a typical presentation of sepsis and pneumonia which occurs in newborn less than 7 days of age in the first week of life and LOD presenting most often with meningitis from day > 7 until 3 months of age9.
+
+These bacteria causes disseminative disease mainly in infants, pregnant women, elders, and immunosuppressed peoples with highest incidence in newborn10. Most adults are asymptomatically colonized with GBS in the genital and gastrointestinal tracts but colonized pregnant women are at high risk of adverse clinical outcomes, premature delivery and prenatal transmission to their neonates2. In pregnancy, GBS that can infect the amniotic fluid, and the neonates become colonized with GBS by aspiration of infected amniotic fluid as well as by vertical transmission through colonized birth canal leading to neonatal sepsis and meningitis. Approximately 10–30% of women are colonized with GBS in vagina during pregnancy, and 50–75% of their infants acquire this organism through birth canal11,12, but 1–2% of them developed invasive GBS infections1. In Ethiopia, the maternal colonization rates varies between 7.2 and 25.5% with a high incidence of newborn mortality and GBS illness13. While the global morality rate of neonatal GBS infections is estimated to reach up to 10%14.
+
+The route of transmission can be interrupted by administering intrapartum antibiotic prophylaxis (IAP). There are two major strategies for identifying pregnant women eligible for IAP: the culture-based and the risk-based approaches. The Centers for Disease Control and Prevention (CDC) recommends that all pregnant women be screened for vaginal-rectal Group B Streptococcus (GBS) colonization between 35 and 37 weeks of gestation15. IAP should be administered as early as possible (effective in prevention of 80–90% early onset Group B Streptococcal disease (EOGBS), and related complications16); however, in some countries such as the United Kingdom and the Netherlands, it is given based on obstetric risk factors, including preterm labor (< 37 weeks), premature rupture of membranes, GBS bacteriuria, or a history of a previous infant with GBS disease17. The Brazilian Society of Pediatrics18 has recommended a culture-based screening policy since 2011; however, adherence to these guidelines remains low, with an estimated compliance rate of around 20% in Brazil17. This low adherence could be due to limited awareness among providers, inadequate laboratory capacity, and lack of national implementation strategies.
+
+Group B Streptococcus (GBS) is still considered uniformly susceptible to penicillin, although isolates with reduced susceptibility have been sporadically reported since 200819. Erythromycin and clindamycin have been recommended as alternative agents for intrapartum antibiotic prophylaxis (IAP) in penicillin-allergic pregnant women at high risk of anaphylaxis or when therapeutic failure is suspected20. However, increasing resistance to erythromycin and/or clindamycin has been reported in many regions worldwide, including Europe21,22, Asia19,23, North America24, and South America25,26,27. As a result, clindamycin is no longer considered a reliable empiric alternative17. In Ethiopia, studies on maternal GBS colonization remain limited, and data on the prevalence, distribution, and antimicrobial susceptibility patterns of GBS among pregnant women in various parts of the Amhara is scared. Therefore, the present study aims to determine the prevalence, antimicrobial susceptibility profile, and associated factors of GBS isolates recovered from pregnant women attending antenatal care at Debre Markos Comprehensive Specialized Hospital.
+
+Materials and methods
+
+Study area, design, and period
+
+An institution-based cross-sectional study was conducted at Debre Markos Comprehensive Specialized Hospital (DMCSH) from March 1 to May 30, 2021. DMCSH, established in 1957 EC, is the only tertiary hospital in East Gojam Zone, Amhara Region, Ethiopia, serving over 3.5 million people. Debre Markos town is located 299 km northwest of Addis Ababa. The hospital provides preventive, curative, and rehabilitative services, and includes adult and neonatal intensive care units (ICUs). It had 193 inpatient beds and 11 intensive care beds with 3 functional ventilators. GBS isolation and identification were carried out in the DMCSH Microbiology Laboratory.
+
+Eligibility criteria
+
+Pregnant women attending ANC at DMCSH with a gestational age of ≥ 35 weeks who provided informed consent were eligible. A gestational age ≥ 35 weeks was chosen to align with CDC’s recommended screening window for GBS. Exclusion criteria also included recent use (within 2 weeks) of vaginal creams, lubricants, traditional sterilizers (e.g., vinegar), or antibiotics, and those who declined to participate.
+
+Sample size and sampling technique
+
+The sample size was calculated using a single population proportion formula (95% CI 5% margin of error, and 16.3% prevalence from a previous study in Jimma28), resulting in a total of 210 participants. A convenience sampling technique was employed.
+
+Data collection and specimen processing (Fig. 1)
+
+Participants were informed about the study, and data on socio-demographic and clinical variables were collected via a structured, pre-tested questionnaire in Amharic, administered through face-to-face interviews by trained midwives. The recto-vaginal swabs were collected using standard procedures and inoculated into 1 ml of Todd-Hewitt enrichment broth supplemented with gentamicin (8 µg/ml) and nalidixic acid (15 µg/ml), then transported to the laboratory. After incubation at 37 °C for 24 h, sub-culturing was performed on 5% sheep blood agar and incubated in 5% CO2 for 18–24 h. Suspected colonies (gray, mucoid, narrow β-hemolysis) were sub-cultured and subjected to Gram staining, catalase, bacitracin sensitivity, and CAMP tests for confirmation. CAMP positivity was indicated by an “arrowhead” hemolysis pattern near Staphylococcus aureus (ATCC 25923). Resistance to bacitracin confirmed GBS identity.
+
+Fig. 1
+
+The alternative text for this image may have been generated using AI.
+Full size image
+
+Flow of chart for the identification of GBS.
+
+Antimicrobial susceptibility testing
+
+Antimicrobial susceptibility testing was performed using the Kirby–Bauer disk diffusion method on Mueller–Hinton agar with 5% sheep blood, following CLSI 2020 guidelines29. Colonies were suspended in saline to match 0.5 McFarland standard. The antibiotics tested included penicillin G (10 IU), ampicillin (10 µg), erythromycin (15 µg), ceftriaxone (30 µg), vancomycin (30 µg), chloramphenicol (30 µg), and azithromycin (15 µg). Plates were incubated in 5% CO2 at 35–37 °C for 18–24 h. Zones of inhibition were interpreted using CLSI standards29.
+
+Quality assurance
+
+All reagents, media, and equipment were checked for quality and sterility. Standard operating procedures (SOPs) were followed at each stage. Reference strains used for quality control included S. aureus (ATCC 25923), S. pyogenes (ATCC 19615), S. agalactiae (ATCC 27956), and E. coli (ATCC 25922), obtained from the Amhara Public Health Institute (Dessie) and the Ethiopian Public Health Institute (Addis Ababa).
+
+Data analysis
+
+Data were entered into EPI Data version 3.1 and analyzed using SPSS version 20. Descriptive statistics summarized participant characteristics. Binary logistic regression identified variables associated with GBS colonization; variables with P ≤ 0.25 were included into multivariable logistic regression to ensure that potential confounders were not overlooked30. Adjusted odds ratios (AOR) with 95% confidence intervals were calculated, and significance was set at P ≤ 0.05.
+
+Operational definitions
+
+Colonization Presence and multiplication of microorganisms without tissue invasion.
+
+Resistant Isolates showing resistance or intermediate resistance to antibiotics.
+
+Multidrug resistance (MDR) Resistance to three or more classes of antibiotics.
+
+Preterm delivery Delivery before 37 completed weeks of gestation.
+
+Results
+
+Socio-demographic characteristics
+
+A total of 210 pregnant women with the gestational age ≥ 35 of weeks have participated in this study. Majority (61.9%) of the study participants were in the age of > 25 years. Most of the study participants were married 182 (86.7%). About 74% of pregnant mothers were urban dwellers (Table 1).
+
+Table 1 Socio-demographic characteristics of pregnant mothers attending ANC at DMCSH Northwest Ethiopia, 2021 (N = 210).
+Full size table
+
+Clinical characteristics
+
+Over half (51.0%) were beyond 37 weeks of gestation, and 67.6% were multigravida. Notably, 21.9% had a history of urinary tract infection or abortion, 14.3% had experienced stillbirth, 12.4% reported having experience of neonatal death in the past pregnancies, and 9.5% were HIV-positive or had chronic illness (Table 2).
+
+Table 2 Clinical characteristics of pregnant mothers attending ANC at DMCSH Northwest Ethiopia, 2021 (N = 210).
+Full size table
+
+Prevalence of GBS and associated factors among pregnant women
+
+The overall prevalence of GBS colonization among pregnant women at ≥ 35 weeks of gestation was 13.3% (28/210). Bivariate logistic regression analysis showed that maternal factors such as age, occupation, marital status, history of abortion, contraceptive use, stillbirth, neonatal death, UTI, premature rupture of membranes, and preterm labor were significantly associated with GBS colonization. However, in multivariate analysis, only marital status and history of abortion remained significant. Married women were 5.77 times more likely to be colonized with GBS compared to unmarried women (AOR 5.77; 95% CI 1.074–31.03; P = 0.041). Additionally, women with a history of abortion were 71% less likely to be colonized compared to those without (AOR 0.29; 95% CI 0.102–0.850; P = 0.024) (Table 3).
+
+Table 3 GBS colonization, socio-demographic and clinical factors associated of pregnant mothers by bivariate and multivariable analysis, attending ANC at DMCSH Northwest Ethiopia, 2021 (N = 210).
+Full size table
+
+Antimicrobial susceptibility pattern of GBS isolates
+
+In this study, seven antimicrobial disks were used to investigate the antimicrobial susceptibility pattern of GBS isolates. Interestingly, 96.4% of the GBS isolates were susceptible to chloramphenicol. Most isolates were susceptible to ceftriaxone (67.9%) and vancomycin (64.3%), respectively. About 71.4% of GBS isolates were resistance to erythromycin. GBS isolates resistances pattern of penicillin, ampicillin, azithromycin, vancomycin, ceftriaxone were 67.9%, 64.3%, 46.4%, 35.7%, 32.1%, respectively. On the other hand, 14.3% and 7.1% of GBS were intermediately resistance to azithromycin and erythromycin, respectively (Table 4).
+
+Table 4 Antimicrobial susceptibility pattern of GBS isolated from pregnant mothers attending ANC at DMCSH Northwest Ethiopia, 2021 (N = 210).
+Full size table
+
+Multi drug resistance pattern of maternal GBS isolates
+
+Half of the GBS isolates demonstrated multidrug resistance, with varying resistance patterns. About 73.2% and 20.1% of GBS isolates were resistance to three and four class of drugs, respectively (Table 5).
+
+Table 5 Multi-drug resistance pattern of GBS isolated from pregnant mothers attending ANC at DMCSH Northwest Ethiopia, 2021 (N = 210).
+Full size table
+
+Discussion
+
+The current study determined a 13.3% prevalence of GBS colonization among pregnant women in Northwest Ethiopia. Notably, high resistance rates were observed for penicillin, ampicillin, and erythromycin, while chloramphenicol showed excellent activity. Marital status was positively associated with colonization, whereas abortion history showed an inverse relationship. These findings highlight the urgent need for local guidelines on screening and antibiotic stewardship. For comparison, the prevalence of GBS colonization in our study (13.3%) is within the lower end of the global range. Similar rates have been reported in other Ethiopian settings such as Mekele, Addis Ababa, Gondar and Nekemte31,32,33,34. In neighboring African countries like Nigeria, and Egypt, prevalence tends to be higher, ranging from 21.3 to 26.5%35,36. Asian studies, including those from Korea, and China, report variable rates ranging up to 10%37,38, while a rate of 21% has been observed in Israel39. These differences may reflect variations in culture methods (e.g., selective media use), sample size, sexual behaviors, gestational age at screening (e.g., ≥ 35 weeks in our study versus 35–37 weeks elsewhere), or specimen collection techniques (recto-virginal swabs vs. vaginal swabs only).
+
+The multivariable logistic regression identified two factors significantly associated with GBS colonization. Married pregnant women exhibited 5.77 fold higher odds of colonization compared to unmarried women (AOR 5.78; 95% CI 1.07–31.03; P = 0.041), aligning with findings from Nekemte, Ethiopia34. Conversely, women with a history of abortion showed 71% reduced odds of colonization (AOR 0.29; 95% CI 0.10–0.85; P = 0.024), a trend contrasting with Addis Ababa data32. The married women’s higher GBS risk may reflect sexual transmission dynamics, while reduced colonization after abortion could stem from prior antibiotic exposure (as the prophylactic antibiotics are part of the post‐abortion care package40), immunological factors or cervical procedures altering the genital flora41. The overall shift in microbiome composition after abortion, may either enhance or hinder the GBS colonization42. These opposing trends highlight how behavioral and clinical histories differentially shape GBS epidemiology.
+
+Among 28 GBS isolates, chloramphenicol showed the highest susceptibility (96.4%; 95% CI 89.3–100%), which was consistent with studies from Brazil (95.6%)27, Indonesia (100%)43, and Addis Ababa (100%)32. But lower susceptibility rate was reported in Iran (57.9%)44, South Africa (75%)45, Gondar (84.8%)33, Mekelle (57.9%)31, Hawassa (20.7%)1 and Nekemte (50%)34. This variability might be due to the regional antibiotic prescribing practices or differences in drug regulation. Remarkably, our study found a high penicillin resistance rate of 67.9%, which exceeds those reported in Indonesia (10%)43, and the Gaza Strip (38%)46. However, similar resistance levels have been reported within Ethiopia, including 77.3% in Nekemte34, 57.7% in Addis Ababa47, and 58.1% in Zimbabwe48,47. The elevated resistance observed may reflect widespread empirical use of β-lactam antibiotics and poor antimicrobial stewardship practices. This interpretation is supported by national assessments of antibiotic consumption patterns, which highlight frequent, often unregulated, use of penicillins and macrolides in both community and hospital settings in Ethiopia49,50. For instance, the WHO 2022 GLASS report on Ethiopia and other national AMR surveillance reports note high levels of inappropriate prescribing and limited enforcement of prescription-only antibiotic regulations51,52.
+
+Similarly, erythromycin resistance in our study (71.4%) was substantially higher than rates reported both within Ethiopia, and internationally. In Ethiopia, resistance levels were notabily lower in Adigrat (11.8%)53, Gondar (26.5%)33, and Addis Ababa (30.6%)47. In North African and Middle Eastern countries, lower resistance was observed in Egypt (22.6%)36 and Saudi Arabia (15.7%)23, while moderate levels were seen in the Gaza Strip (43%)46. High resistance rates to azithromycin (46.4%) and vancomycin (35.7%) in our study further underscores the emerging challenges of GBS treatment. These trends align with moderate moderate resistance seen in the Gaza Strip (21%)46, and Kenya (25%)54; but exceed previous Ethiopian reports, suc as the 16.3% vancomycin resistance in Gondar33. The widespread resistance may reflect frequent, unregulated use of macrolides for self-treatment of upper respiratory and other infections, along with empirical use of vancomycin in critical care settings without culture confirmations55. Moreover, the observation that 50% of isolates were MDR consistent with the finding in Addis Ababa32, suggesting a growing concern for MDR GBS in Ethiopia.
+
+Strength and limitation of the study
+
+This study offers important data on GBS colonization and its associated risk factors among pregnant women, with strengths including comprehensive variable analysis and antimicrobial susceptibility profiling of GBS isolates in the study setting. However, limitations include the lack of a latex agglutination test for precise GBS identification, a small sample size with non-probability sampling, the inability to assess neonatal outcomes, and the lack of molecular characterization of resistance genes. Despite these constraints, the findings underscore the need for routine maternal GBS screening and targeted prevention strategies.
+
+Conclusion and recommendations
+
+This study found that GBS colonization among pregnant women in the study area warrants clinical attention due to its associated high antibiotic resistance. Marital status was positively associated with colonization, whereas women with a history of abortion were significantly less likely to be colonized. Notably, high resistance rates were observed for penicillin, ampicillin, erythromycin, and azithromycin, and half of the isolates were multidrug-resistant. Therefore, we recommend implementing routine GBS screening for all pregnant women attending antenatal care to reduce maternal colonization and prevent neonatal complications. For women who test positive, timely and appropriate intrapartum antibiotic prophylaxis should be provided, ensuring optimal timing and antibiotic selection based on local susceptibility patterns. To address the threat of rising antimicrobial resistance, antibiotic stewardship programs should be strengthened in both hospital and community settings. In addition, public health education campaigns are needed to promote rational antibiotic use and raise awareness about the consequences of misuse.
+
+Data availability
+
+The data can be made available upon reasonable request from the corresponding author.
+
+References
+
+Mohammed, M., Asrat, D., Woldeamanuel, Y. & Demissie, A. Prevalence of group B Streptococcus colonization among pregnant women attending antenatal clinic of Hawassa Health Center, Hawassa, Ethiopia. Ethiop. J. Health Dev. 26(1), 36–42 (2012).
+
+Google Scholar 
+
+Morgan, J. A., Zafar, N. & Cooper, D. B. Group B Streptococcus and Pregnancy. Treasure Island (FL) ineligible companies. Disclosure: Nowera Zafar declares no relevant financial relationships with ineligible companies. Disclosure: Danielle Cooper declares no relevant financial relationships with ineligible companies.: StatPearls Publishing.
+
+Melin, P. Neonatal group B streptococcal disease: From pathogenesis to preventive strategies. Clin. Microbiol. Infect. 17(9), 1294–1303 (2011).
+
+Article 
+CAS 
+PubMed 
+
+Google Scholar 
+
+Jannati, E. et al. Capsular serotype and antibiotic resistance of group B streptococci isolated from pregnant women in Ardabil, Iran. Iran. J. Microbiol. 4(3), 130 (2012).
+
+CAS 
+PubMed 
+PubMed Central 
+
+Google Scholar 
+
+Ueno, H. et al. Characterization of group B streptococcus isolated from women in Saitama City, Japan. Jpn. J. Infect. Dis. 65(6), 516–521 (2012).
+
+Article 
+PubMed 
+
+Google Scholar 
+
+Hanna, M. & Noor, A. Streptococcus Group B. Treasure Island (FL) ineligible companies. Disclosure: Asif Noor declares no relevant financial relationships with ineligible companies.: StatPearls Publishing.
+
+Mengist, A., Kannan, H. & Abdissa, A. Prevalence and antimicrobial susceptibility pattern of anorectal and vaginal group B Streptococci isolates among pregnant women in Jimma, Ethiopia. BMC Res. Notes 9(1), 351 (2016).
+
+Article 
+PubMed 
+PubMed Central 
+
+Google Scholar 
+
+Borghesi, A., Stronati, M. & Fellay, J. Neonatal group B streptococcal disease in otherwise healthy infants: Failure of specific neonatal immune responses. Front. Immunol. 8, 215 (2017).
+
+Article 
+PubMed 
+PubMed Central 
+
+Google Scholar 
+
+Shiferawu, S., Mekonen, M., Baza, D. & Lera, T. Prevalence of group b streptococcus, its associated factors and antimicrobial susceptibility pattern among pregnant women attending antenatal care at Arbaminch Hospital, South Ethiopia. Am. J. Health Res. 7(6), 104–115 (2019).
+
+Article 
+
+Google Scholar 
+
+Miselli, F. et al. Transmission of group B Streptococcus in late-onset neonatal disease: A narrative review of current evidence. Ther. Adv. Infect. Dis. 9, 1–14 (2022).
+
+Google Scholar 
+
+Shirazi, M. et al. The prevalence of group B streptococcus colonization in Iranian pregnant women and its subsequent outcome. Int. J. Fertil. Steril. 7(4), 267–270 (2014).
+
+PubMed 
+
+Google Scholar 
+
+Jin, G. et al. Maternal and neonatal outcomes of Group B Streptococcus colonization: A retrospective study. BMC Infect. Dis. 25(1), 94 (2025).
+
+Article 
+CAS 
+PubMed 
+PubMed Central 
+
+Google Scholar 
+
+Husen, O. et al. Prevalence, antimicrobial susceptibility pattern and associated factors of group B Streptococcus among pregnant women attending antenatal Care at Bule Hora University Teaching Hospital, Southern Ethiopia. Infect. Drug Resist. 16, 4421–4433 (2023).
+
+Article 
+CAS 
+PubMed 
+PubMed Central 
+
+Google Scholar 
+
+Ying, Q., Wang, S., Lou, X., Ding, J. & Ding, J. Burden and risk factors of invasive group B Streptococcus disease among neonates in a Chinese maternity hospital. BMC Infect. Dis. 19(1), 123 (2019).
+
+Article 
+PubMed 
+PubMed Central 
+
+Google Scholar 
+
+Serra, G. et al. Group B streptococcus colonization in pregnancy and neonatal outcomes: A three-year monocentric retrospective study during and after the COVID-19 pandemic. Ital. J. Pediatr. 50(1), 175 (2024).
+
+Article 
+PubMed 
+PubMed Central 
+
+Google Scholar 
+
+Fairlie, T., Zell, E. R. & Schrag, S. Effectiveness of intrapartum antibiotic prophylaxis for prevention of early-onset group B streptococcal disease. Obstet. Gynecol. 121(3), 570–577 (2013).
+
+Article 
+CAS 
+PubMed 
+
+Google Scholar 
+
+Le Doare, K. et al. Intrapartum antibiotic chemoprophylaxis policies for the prevention of group B streptococcal disease worldwide: Systematic review. Clin. Infect. Dis. 65(suppl_2), S143–S151 (2017).
+
+Article 
+PubMed 
+PubMed Central 
+
+Google Scholar 
+
+Costa HdPF, BRITO A: Prevenção da doença perinatal pelo estreptococo do grupo B. Manual da Sociedade Brasileira de Pediatria, 1–18 (2011).
+
+Kimura, K. et al. High frequency of fluoroquinolone-and macrolide-resistant streptococci among clinically isolated group B streptococci with reduced penicillin susceptibility. J. Antimicrob. Chemother. 68(3), 539–542 (2013).
+
+Article 
+CAS 
+PubMed 
+
+Google Scholar 
+
+Desravines, N. et al. Intrapartum group B streptococcus antibiotic prophylaxis in penicillin allergic pregnant women. AJP Rep. 9(3), e238–e243 (2019).
+
+Article 
+PubMed 
+PubMed Central 
+
+Google Scholar 
+
+De Francesco, M. A., Caracciolo, S., Gargiulo, F. & Manca, N. Phenotypes, genotypes, serotypes and molecular epidemiology of erythromycin-resistant Streptococcus agalactiae in Italy. Eur. J. Clin. Microbiol. Infect. Dis. 31(8), 1741–1747 (2012).
+
+Article 
+CAS 
+PubMed 
+
+Google Scholar 
+
+Fröhlicher, S. et al. Serotype distribution and antimicrobial susceptibility of group B streptococci in pregnant women: results from a Swiss tertiary centre. Swiss Med. Wkl. 144(1112), w13935 (2014).
+
+Article 
+
+Google Scholar 
+
+Khan, M. A., Faiz, A. & Ashshi, A. M. Maternal colonization of group B streptococcus: Prevalence, associated factors and antimicrobial resistance. Ann. Saudi Med. 35(6), 423–427 (2015).
+
+Article 
+PubMed 
+PubMed Central 
+
+Google Scholar 
+
+Back, E. E., O’Grady, E. J. & Back, J. D. High rates of perinatal group B Streptococcus clindamycin and erythromycin resistance in an upstate New York Hospital. Antimicrob. Agents Chemother. 56(2), 739–742 (2012).
+
+Article 
+CAS 
+PubMed 
+PubMed Central 
+
+Google Scholar 
+
+Abarzúa, F. et al. Prevalencia de portación vaginal-anal de Streptococcus agalactiae en el tercer trimestre de gestación y susceptibilidad a macrólidos y lincosamidas, en mujeres embarazadas de Clínica Alemana Temuco, Chile. Rev. Chilena Infectol. 31(3), 305–308 (2014).
+
+Article 
+PubMed 
+
+Google Scholar 
+
+Dutra, V. G. et al. Streptococcus agalactiae in Brazil: Serotype distribution, virulence determinants and antimicrobial susceptibility. BMC Infect. Dis. 14(1), 323 (2014).
+
+Article 
+PubMed 
+PubMed Central 
+
+Google Scholar 
+
+Melo, S. C. et al. Antimicrobial susceptibility of Streptococcus agalactiae isolated from pregnant women. Rev. Inst. Med. Trop. Sao Paulo 58, 83 (2016).
+
+Article 
+PubMed 
+PubMed Central 
+
+Google Scholar 
+
+Girma, W., Yimer, N., Kassa, T. & Yesuf, E. Group B Streptococcus recto-vaginal colonization in near-term pregnant women, Southwest Ethiopia. Ethiop. J. Health Sci. 30(5), 687–696 (2020).
+
+PubMed 
+PubMed Central 
+
+Google Scholar 
+
+Wayne, P. Performance standards for antimicrobial susceptibility testing. In CLSI Supplements M00130th ed Clinical and Laboratory Standards Institute (2020).
+
+Zhang, Z. Model building strategy for logistic regression: purposeful selection. Ann. Transl. Med. 4(6), 111 (2016).
+
+Article 
+PubMed 
+PubMed Central 
+
+Google Scholar 
+
+Alemseged, G. et al. Isolation and anti-microbial susceptibility pattern of group B Streptococcus among pregnant women attending antenatal clinics in Ayder Referral Hospital and Mekelle Health Center, Mekelle, Northern Ethiopia. BMC. Res. Notes 8(1), 518 (2015).
+
+Article 
+PubMed 
+PubMed Central 
+
+Google Scholar 
+
+Assefa, S., Desta, K. & Lema, T. Group B streptococci vaginal colonization and drug susceptibility pattern among pregnant women attending in selected public antenatal care centers in Addis Ababa, Ethiopia. BMC Pregnancy Childbirth 18(1), 1–9 (2018).
+
+Article 
+
+Google Scholar 
+
+Gizachew, M. et al. Streptococcus agalactiae from Ethiopian pregnant women; prevalence, associated factors and antimicrobial resistance: Alarming for prophylaxis. Ann. Clin. Microbiol. Antimicrob. 18(1), 3 (2019).
+
+Article 
+PubMed 
+PubMed Central 
+
+Google Scholar 
+
+Mengist, H. M., Zewdie, O., Belew, A. & Dabsu, R. Prevalence and drug susceptibility pattern of group B Streptococci (GBS) among pregnant women attending antenatal care (ANC) in Nekemte Referral Hospital (NRH), Nekemte, Ethiopia. BMC Res. Notes 10(1), 1–6 (2017).
+
+Article 
+
+Google Scholar 
+
+Anosike, I., Ebana, R., Edet, U., Egbomuche, R. & Victory, A. Prevalence of Streptococcus agalactiae among women resident in Calabar, Cross River State, Nigeria. Asian J. Res. Med. Pharm. Sci. 2, 1–7 (2017).
+
+Article 
+
+Google Scholar 
+
+Sadaka, S. M., Aly, H. A., Meheissen, M. A., Orief, Y. I. & Arafa, B. M. Group B streptococcal carriage, antimicrobial susceptibility, and virulence re
+
+[… truncated 10976 chars …]

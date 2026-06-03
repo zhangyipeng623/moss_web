@@ -1,0 +1,349 @@
+Social opinions prediction utilizes fusing dynamics equation with LLM-based agents | Scientific Reports
+https://www.nature.com/articles/s41598-025-99704-3?error=cookies_not_supported&code=7c8fb2ba-2dae-40a5-92f1-acfa227b6a46
+
+<!DOCTYPE html>
+
+Social opinions prediction utilizes fusing dynamics equation with LLM-based agents | Scientific Reports
+
+Skip to main content
+
+Thank you for visiting nature.com. You are using a browser version with limited support for CSS. To obtain
+the best experience, we recommend you use a more up to date browser (or turn off compatibility mode in
+Internet Explorer). In the meantime, to ensure continued support, we are displaying the site without styles
+and JavaScript.
+
+View all journals
+
+Search
+
+Log in
+
+Content
+Explore content
+
+About the journal
+
+Publish with us
+
+Sign up for alerts
+
+RSS feed
+
+Social opinions prediction utilizes fusing dynamics equation with LLM-based agents
+
+Download PDF
+
+Download PDF
+
+Article
+
+Open access
+
+Published: 03 May 2025
+
+Social opinions prediction utilizes fusing dynamics equation with LLM-based agents
+
+Junchi Yao1, 
+
+Hongjie Zhang1, 
+
+Jie Ou2, 
+
+Dingyi Zuo1, 
+
+Zheng Yang3 & 
+
+…
+
+Zhicheng Dong4 
+Show authors
+
+Scientific Reports
+
+volume 15, Article number: 15472 (2025) Cite this article
+
+7983 Accesses
+
+8 Citations
+
+2 Altmetric
+
+Metrics details
+
+Subjects
+
+Computer science
+
+Information technology
+
+Abstract
+
+In the context where social media emerges as a pivotal platform for social movements and shaping public opinion, accurately simulating and predicting the dynamics of user opinions is of significant importance. Such insights are vital for understanding social phenomena, informing policy decisions, and guiding public opinion. Unfortunately, traditional algorithms based on idealized models and disregarding social data often fail to capture the complexity and nuance of real-world social interactions. This study proposes the Fusing Dynamics Equation-Large Language Model (FDE-LLM) algorithm. This innovative approach aligns the actions and evolution of opinions in Large Language Models (LLMs) with the real-world data on social networks. The FDE-LLM divides users into two roles: opinion leaders and followers. Opinion leaders use LLM for role-playing and employ Cellular Automata(CA) to constrain opinion changes. In contrast, opinion followers are integrated into a dynamic system that combines the CA model with the Susceptible-Infectious-Recovered (SIR) model. This innovative design significantly improves the accuracy of the simulation. Our experiments utilized four real-world datasets from Weibo. The result demonstrates that the FDE-LLM significantly outperforms traditional Agent-Based Modeling (ABM) algorithms and LLM-based algorithms. Additionally, our algorithm accurately simulates the decay and recovery of opinions over time, underscoring LLMs potential to revolutionize the understanding of social media dynamics.
+
+Similar content being viewed by others
+
+Public opinion dissemination simulation based on large language model multi-agent systems
+
+Article
+Open access
+04 April 2026
+
+Modelling opinion dynamics under the impact of influencer and media strategies
+
+Article
+Open access
+08 November 2023
+
+Unraveling the emergence of collective behavior in networks of cognitive agents
+
+Article
+Open access
+21 March 2026
+
+Introduction
+
+The dynamic of user opinions plays a crucial role in leading social movements and influencing public opinion. Predicting these dynamics is essential for understanding the social phenomena, scientifically formulating policies, and effectively steering public discourse1,2,3,4. The process of user opinion formation and evolution is complex and driven by multiple factors. Therefore, capturing this process accurately has become the key point of attention in both academic and industrial sectors.
+
+Opinion simulation methods are divided into two categories: traditional Agent-Based Modeling (ABM) and Large Language Model (LLM)-based algorithms. ABM models the interactions between individuals and local rules to simulate opinion diffusion. Cellular Automata (CA), with their structured grid dynamics and local spatial interactions, provide a powerful framework to simulate the intricate spatiotemporal evolution of complex systems5,6. Bounded confidence models integrate psychological factors into their frameworks, including the Deffuant-Weisbuch (DW) model7 and the Hegselmann-Krause (HK) model8. The voter model developed by Clifford9 and Holley10 captures the essence of the public choice dynamic. Furthermore, empirical ABMs are developed based on real data. Carpentras utilized ABM to simulate the phenomenon of attitude polarization based on Real Life Experiments (ABM-RLE)11, while Duggins proposed the Psychologically-Motivated Model (ABM-PM) and reproduced two empirical datasets on Americans’ political opinions12. However, these models still can’t resolve the large variance and self-decay problems when simulating the real world.
+
+The LLM-based opinion propagation algorithm13 offers an innovative approach using LLM agents to replace human social interactions to build a social network14,15,16. This framework involves creating agents that engage in interactions to disseminate and predict opinion. G. De Marzo demonstrated that agents in their interactions can spontaneously form scale-free networks, which resemble real-world social networks such as Twitter17. Additionally, researchers at Stanford have expanded LLMs’ functionality to store memories and implement dynamical action planning18. Chuang et al. have identified inherent biases in LLM-based agents, aligning them with real-world scientific consensus19. Furthermore, Liu et al. introduced a framework for an LLM-based fake news propagation simulation framework (FPS)20.
+
+In the context of group simulation, G. De Marzo defined a “majority force coefficient” to measure the tendency of agents to follow the majority opinion. They found that a LLM society can only spontaneously reach consensus if the group size does not exceed a certain threshold21. To control the number of agents, Mou et al. have proposed a hybrid framework where core users are driven by LLMs while stimulating regular users using a deductive agent-based model. Nonetheless, this approach still struggles with predicting opinions on real-world events due to the unconstrained opinion diffusion22.
+
+Traditional opinion dynamics models, like CA and HK, fall short in simulating human boredom or immunity emotions. Repeated event propagation leads individuals to boredom, leading their opinions towards neutrality. At the same time, the epidemic model, notably the Susceptible-Infectious-Recovered (SIR) model, effectively illustrates how information spreads23. Therefore, human boredom can be modeled using the concept of SIR model.
+
+This study introduces an innovative opinion dynamics simulation method called Fusing Dynamics Equation LLM (FDE-LLM), which integrates LLMs with the SIR model. Our approach designs a Weibo (https://weibo.com/) simulator, where opinion leaders use LLM to interact each other, while opinion followers use ABM for opinion diffusion. Then, we constrain the opinion changes of opinion followers by integrating CA with the SIR model, while the CA model constrains the opinion leaders. Finally, we employ few-shot prompts to guide the opinion leaders in outputting actions based on their opinion values, determined by CA and LLM reflections. Utilizing the open-source model ChatGLM as the LLM Agent, we perform experiments on four real Weibo datasets. The results demonstrate that our FDE-LLM significantly surpasses existing ABM and LLM-based algorithms on Dynamic Time Warping (DTW) distance and Pearson correlation coefficient(Corr.) metrics.
+
+Our contributions are threefold:
+
+We present the LLM-based opinion dissemination algorithm, constrained by dynamic equations, which enables a more realistic macro-level simulation results.
+
+We combine opinion dynamics with the concept of SIR, effectively simulating the phenomenon of the public’s attitude gradually changing toward neutrality after the occurrence of news.
+
+We performed extensive experiments on accurate real-world Weibo data using ChatGLM, showcasing the superior accuracy of our approach when compared to traditional ABM and LLM-based algorithms.
+
+Method
+
+Offline news
+
+For news to begin spreading on social network, it must use real-world events that have genuinely taken place. These events are referred to as “offline news”.
+
+In our study, we specifically selected offline news characterized by a reversal of outcomes between their initial and concluding phases, hereafter referred to as “reversal news”. Such news typically begins with influential opinion leaders posting unverified claims (rumors), leading to a one-sided public opinion. After a period of time, official authorities release the truth or investigation results, causing a sudden change in public opinion to the opposite. Over time, as the public gradually regains rational judgment, the average attitud tend toward neutrality.
+
+When using LLMs to simulate opinion leaders, we only adopt three attitude states: 1, 0, and -124. This allows us to effectively simulate the process: supporting A \(\rightarrow\) (potential attitude decay) \(\rightarrow\) news reversal \(\rightarrow\) supporting B \(\rightarrow\) attitude decay. For LLMs, generating clear opinions (agree/disagree) is easier than specific values (0.7), so -1, 0, 1 are more suitable. Additionally, we incorporate the CA model to generate the final opinion leaders attitude.
+
+Data analysis
+
+Dataset
+
+We utilized event keywords on the Chinese social media platform Weibo as crawling markers, collecting related posts and comments daily for each event. In total, we gathered 255176 posts. Our data collection focuses on four highly “reversal news”: the “Pangmao” suicide event (133834), the secondary school girl “Jiangping” ranking 12th in a global math competition (98471), the “Qingdao” subway assault (6331), and the “Dianduji” girl stockpile cancer video incident (16540). We designed a few-shot LLM-based agent to evaluate the attitudes of all of the statements on a scale of [-1, 1]. Attitude values are recorded daily, with the total duration spanning from the day the event occurs. Moreover, the news began to circulate until the overall real attitudes stabilized and approached neutrality. The attitude and action models are based on GLM4 with the same prompt to maintain logical consistency.
+
+The four datasets exhibit a progressively decreasing level of internet discussion intensity, representing events with four different levels of discussion popularity. These data allows for a more comprehensive evaluation of the effectiveness of our simulation method. Detailed data on opinion leaders and opinion followers can be found in Table 1.
+
+The following are time segments extracted during the experiment.
+
+Pangmao incident (Fig. 1a): On April 11, 2024, a 21-year-old game coach, “Pangmao”, tragically died after jumping off the Chongqing Yangtze River Bridge. On May 2, 2024, Pangmao’s sister shared screenshots of their chat history with his girlfriend, sparking widespread debate. On May 19, 2024, the Chongqing Public Security Bureau’s Nanan District branch issued an official report on the April 11 incident through the “Safe Nanan” platform, revealing that Pangmao’s sister had intentionally guided negative public opinion, which posed a threat to the social network environment.
+
+Jiangping incident (Fig. 1b): On June 13, 2024, the final list of the 2024 Alibaba Global Mathematics Competition was announced. A 17-year-old vocational student, Jiang Ping, from Lianshui Vocational School in Jiangsu Province, placed 12th, which quickly attracted widespread attention. On June 21, 2024, Zhao Bin, a master student from Peking University, publicly accused Jiang Ping of cheating.
+
+Qingdao incident (Fig. 1c): On August 7, 2024, in Qingdao, Shandong, a young man was allegedly slapped and punched on the subway by an elderly man after refusing to give up his seat, leading to bleeding from his mouth and nose, which sparked heated discussion. On August 8, 2024, Heilongjiang News reported that the young man involved appeared and explained the incident, stating in a video, “The old man complained because I didn’t offer him my seat, but I only give seats to women, why should I give it to him” On August 12, 2024, the police issued a statement revealing that the young man had first insulted the elderly man, and the incident had nothing to do with “giving up the seat”.
+
+Dianduji incident (Fig. 1d): On the evening of February 29, 2024, “Point Reading Machine Girl” Gao Junyu posted a video on social media stating that she had been diagnosed with a brain tumor and shaved her head. In the following 11 days, her account posted eight videos documenting her surgery and recovery process. On March 11, 2024, some netizens noticed that the clothing in previous videos was inconsistent with the season, suspecting they were “pre-recorded videos.” On March 12, 2024, the Internet Illegal and Harmful Information Reporting Center of Yuhang District, Hangzhou, issued a statement, confirming that the videos were filmed in September 2023 and edited starting in February 2024.
+
+Fig. 1
+
+The alternative text for this image may have been generated using AI.
+Full size image
+
+Event Relationship Network Diagram. The core of the network represents opinion leaders, while the branches represent opinion followers. The deeper the color, the stronger the influence.
+
+Based on the results in Figure 1, the ratio of opinion leaders to followers can be further obtained, as shown in Table 1.
+
+Table 1 The ratio distribution of Opinion Leaders and Opinion Followers across different datasets.
+Full size table
+
+Analysis
+
+By analyzing the opinion changes with time, they exhibit the following two characteristics:
+
+1. Large variance The contrast between rumors and the truth leads to a significant change in the attitude. In the Dianduji incident (Fig. 2d), the extreme variance of the attitude reached 1.4, indicating that more than half of the people underwent a complete reversal.
+
+2. Self-decay After the news spreads, we noticed that opinion rises to a certain threshold, then stops growing, gradually declines, and hovers around zero. This trend is often captured in real news through neutral sentiments like “questioning authenticity” or “both sides might have issues”. For example, in the Jiangping incident (Fig. 2b) timeline from day 1 to day 15, support dropped from 0.6 on the first day to 0.1.
+
+To better simulate the aforementioned characteristics, compared to traditional ABM, LLMs can effectively handle large variance, thereby simulating the trend of attitudes in response to significant attitude changes. Additionally, by incorporating the “recovery” concept from the SIR model, we can simulate the phenomenon of self-decay. For more details, please refer to Fig. 2a–d.
+
+Fig. 2
+
+The alternative text for this image may have been generated using AI.
+Full size image
+
+The red lines represent actual data (a) Pangmao Incident (b) Jiangping Incident (c) Qingdao Incident (d) Dianduji Incident. The labeled parts in the figures are the key areas that we need to simulate using the models.
+
+Workflow
+
+Figure 3 illustrates the overall frameworkof the FDE-LLM algorithm. We developed a simulated social platform by python where opinion leaders possess the ability to take actions (such as commenting and reposting), while opinion followers are influenced by the opinion leaders and followers. In addition to being able to read each other’s actions (comments and reposts), opinion leaders will also read offline news at the beginning and end of the simulation, representing the initiation and conclusion (the revelation of the truth) of a “reversal news”. During the intervals between offline news releases, they will engage in discussions and changes in opinions.
+
+Firstly, the opinion leaders, receive the first offline news, which is inaccurate, misleading, and provocative, and take action (Fig. 4). LLM-Attitude assesses the subsequent attitudes toward these actions. The results are then separately relayed to opinion leaders (simulated by LLM with CA) and opinion followers (simulated by CA with SIR). Leaders will treat the attitude processed by the CA model as the current attitude value. In the next round, the current attitude value will serve as one of the influencing factors in determining the action choice (Fig. 5). Followers will obtain their own attitude value for the current round by processing Leaders’ current attitude value through both the CA and SIR models.
+
+Each round is “one hour”, and we take the time of truth exposure in reality as the reference, releasing the offline news containing the truth at that point in time. The followers represent the general public, reflecting the direction of public opinion. Therefore, when evaluating attitude, we will use the opinion followers. By comparing the attitudes before and after the truth exposure with the real attitudes, we can assess the effectiveness of the simulation.
+
+Fig. 3
+
+The alternative text for this image may have been generated using AI.
+Full size image
+
+Workflow of the FDE-LLM Simulation: Cooperation of Opinion Leaders and Opinion Followers, Role-Playing Mechanism, and Integration of CA and SIR Models.
+
+Definition
+
+Opinion leader agent
+
+Opinion leaders are initiators of opinion in social networks. Positive opinion leaders typically play a constructive role in key moments, while negative opinion leaders may spread rumors, mislead others, or even disrupt social stability. Therefore, the influence of opinion leaders is dual in nature, as it can either guide the group toward positive goals or lead to negative consequences.
+
+According to the real-world dataset, we select and model opinion leader based on users’ profile (such as critics, celebrities, official media accounts, etc.) (Fig. 1, Table 1). We maintained an opinion leader to follower ratio of 1:9, ensuring a realistic distribution of influence within the simulation.
+
+These agents consciously spread or diffuse their opinion to followers and guide their perspective; their opinions are not influenced by opinion followers, and there is interaction of opinions only between leaders with similar attitudes. We control this through attitude difference thresholds. As a result, we obtain multiple groups of leaders with distinguishable attitudes.
+
+Opinion follower agent
+
+We define an individual who does not possess all of the above characteristics is referred to as an opinion follower. In reality, opinion followers lack a clear target opinion.
+
+In our agent framework, during the process of updating their perspectives, they are influenced by the similar opinions of opinion leaders as well as other opinion followers.
+
+Fig. 4
+
+The alternative text for this image may have been generated using AI.
+Full size image
+
+Actions and Attitudes. The left side displays the types of actions that LLM-Action can select. In contrast, the right side illustrates the specific behaviors related to each action type and the associated scoring of attitudes by LLM-Attitudes.
+
+LLM-action
+
+The LLM-Action module predicts the actions taken by opinion leaders after reading news. Based on the profiles described by Xinyi Mou et al.22, we have assigned social personalities to opinion leaders. They are characterized as talkative and provocative, which makes their behavior more radical and reduces the likelihood of neutrality. This setup is beneficial for the subsequent LLM-Attitude module to evaluate the agent’s stance.
+
+To ensure the coherence of actions and avoid the erroneous scenario of “flip-flopping” between support and opposition, the agent needs to consider the current attitude value when making actions in each round (Fig. 5).
+
+Fig. 5
+
+The alternative text for this image may have been generated using AI.
+Full size image
+
+Agent Profile. This is an example of an active and influential social media agent with narrative amplification and exaggerated commentary to engage the audience. The profile is summarized from the actual dataset, based on the target user’s reviews and posts.
+
+LLM-attitude
+
+The model also leverages the established framework to build agents by designing targeted prompts for different events and facilitating objective and unbiased attitude evaluations. By employing the same LLM for both action and attitude, we guarantee that LLM-Attitude and LLM-Action maintain aligned values, which accounts for the uniformity in the generated attitudes.
+
+We designed the agents to select only three values: 1 for support, 0 for neutrality, and -1 for opposition (supporting the opposing side). This design is based on the characteristics of “reversal news”, which often highlights extreme polarization of opinions. In such cases, the attitudes of groups toward rumors and truths tend to be diametrically opposed before eventually stabilizing. Therefore, using only 1, 0, and -1 is sufficient to reflect the entire process of attitude evolution. Additionally, considering the uncertainty of LLMs, if there are too many intermediate values, the LLM might produce significantly different answers for similar variations of the same action, leading to incorrect attitude judgments.
+
+Models
+
+Opinion leaders: LLM with CA
+
+LLMs are effective in modeling scenarios where significant changes in attitude occur, as they can handle large variation in opinion. However, they tend to converge rapidly to a stable value, lacking the ability to simulate ongoing changes and interactions. In contrast, CA cannot easily capture sudden changes in events but excel in simulating the effects of mutual influence between individuals.
+
+By combining these two models, we can leverage the strengths of each: LLMs for handling large-scale attitude changes, and CA for modeling the intricate interactions and continuous dynamics within a group. To capture the micro-level interactions between opinion leaders, we map their opinion states onto a CA grid5, where each cell represents an agent. We chose a grid-based model over a fully connected network to balance realism and practicality. While fully connected networks capture complex, long-range interactions, they require extensive data (e.g., user follow lists) and computational resources. The grid model assumes local interactions, aligning with event-driven dynamics where most of opinion leaders often exert localized influence within communities. It fosters local consensus while preserving global diversity, suitable for scenarios without full consensus25,26,27. Additionally, it offers data efficiency, privacy protection, and scalability by avoiding sensitive data and enabling flexible group size adjustments. The CA model is shown in Eq. 1, 2.
+
+$$\begin{aligned} O_i^{t+1}=r\cdot O_i^t+w\cdot \sum _{j\in X_i}\ T_{ij}^t \end{aligned}$$
+
+(1)
+
+$$\begin{aligned} T_{ij}^t = {\left\{ \begin{array}{ll} O_j, & r = 0 \\ 0, & r = 1 \text { or } \left| O_j^t - O_i^t \right| > \epsilon \\ \left( O_j^t - O_i^t \right) \cdot \sqrt{r \cdot |O_j^t|}, & r \ne 1, 0 \text { and } \left| O_j^t - O_i^t \right| \le \epsilon \end{array}\right. } \end{aligned}$$
+
+(2)
+
+where \(O_i^{t+1}\) represents the updated opinion of the individual opinion leader i at time \(t+1\). \(O_i^t\) is the opinion of the individual opinion leader i at time t; r is the retention factor that indicates how much of the current opinion is retained; w refers to the influence coefficient that determines the impact of neighboring opinions. At the same time, \(\sum _{j\in X_i} T_{ij}^t\) represents the summation of influences \(T_{ij}^t\) from all neighbors j in the neighborhood \(X_i\) at time t. This formula models the evolution of an individual opinion leader’s opinion over time, accounting for personal retention and the influence of surrounding opinions.
+
+Mechanism 1 (Opinion persistence) The retention factor \(r \in [0,1]\) quantifies cognitive consistency through diagonal dominance in the update matrix.
+
+Mechanism 2 (Thresholded influence) The tolerance threshold \(\epsilon\) implements confirmation bias by nullifying influences beyond \(|\Delta O| > \epsilon\).
+
+Mechanism 3 (Non-linear influence) The term \(\sqrt{r\cdot |O_j^t|}\) captures the effect of neighboring agents’ opinions on an individual’s attitude.
+
+We designed the following formula to constrain the attitudes generated by LLM using CA (Eq. 3):
+
+$$\begin{aligned} \begin{aligned} O_i^{t+1} = \textrm{clip}\Bigg (&\alpha \cdot \left( r \cdot O_i^t + w \cdot \sum _{j \in N_i} T_{ij}^t\right) + (1 - \alpha ) \cdot \text {LLM}, -1, 1 \Bigg ) \end{aligned} \end{aligned}$$
+
+(3)
+
+We outline the \(clip(-1, 1)\) function to ensure that the updated opinion values remain within the range of \([-1, 1]\). This framework prevents the opinion values from exceeding reasonable limits, ensuring the stability and rationality of the model results. In addition, an \(\alpha\) fusion coefficient is introduced to determine the relative influence of the LLM and the CA model. The pseudocode is shown in Algorithm 1.
+
+Algorithm 1
+
+The alternative text for this image may have been generated using AI.
+Full size image
+
+LLM + CA Model
+
+Opinion follower: CA with SIR
+
+The CA model demonstrates strong efficiency in simulating attitude propagation within a group. However, our examination of real datasets revealed an intriguing phenomenon: self-decay.
+
+To address this challenge, we have integrated part of the SIR model. By introducing a probabilistic decay rule inspired by SIR’s recovery concept, we effectively overcome the limitation of unconstrained attitude propagation in the CA model. This adaptation allows opinion followers to regain balance when exposed to aligning with the opinion leader’s position, thereby more accurately mirroring the natural decay of attitudes in social news discussions. The CA-SIR model is as follows: \(O_i^{t+1} = O_i^{t+1} \cdot e^{-\lambda \cdot |O_i^{t+1}|} \quad \text {if} \quad \text {random} < \gamma\)
+
+The fusion model of CA and SIR is described by the following Eq. 4.
+
+$$\begin{aligned} O_i^{t+1} = \textrm{clip}\left( \left( r \cdot O_i^t + w \cdot \frac{\sum _{j \in N_i} \left( O_j^t - O_i^t \right) \cdot \sqrt{r \cdot |O_j^t|} \cdot I\left( |O_j^t - O_i^t| \le \epsilon \right) }{|N_i|}\right) \cdot e^{-\lambda \cdot |O_i^{t+1}|} \cdot I(\text {random} < \gamma ), -1, 1\right) \end{aligned}$$
+
+(4)
+
+where \(|N_i|\) is the number of neighbors around individual i: \(|O_j^t - O_i^t|\) signifies the opinion difference between neighbor j and individual i; \(I\left( |O_j^t - O_i^t| \le \epsilon \right)\) is an indicator function that equals 1 if the opinion difference is within the threshold \(\epsilon\), and 0 otherwise. \(\lambda\) is the decay rate indicating the natural decay of opinions. \(\gamma\) is the recovery rate, representing the probability of opinion recovering. The pseudocode is shown in Algorithm 2.
+
+Algorithm 2
+
+The alternative text for this image may have been generated using AI.
+Full size image
+
+CA + SIR Model
+
+Experiments
+
+Experimental setup
+
+The GLM4 model was run in a Python 3.10.12 environment utilizing an Intel(R) Xeon(R) Platinum 8160 CPU @ 2.10GHz, a T4 GPU. Our approach focuses on integrating ABM with LLMs to simulate human behavior in opinion dynamics, emphasizing LLMs’ role-playing capabilities over advanced reasoning. GLM4 was chosen for its robust performance in generating contextually relevant responses, which is sufficient for modeling opinion leader interactions.
+
+1. Parameter settings Through experimentation, we found that we could use unified parameters for all of the models on similar reversal news. The parameters were derived through grid search using the ABM algorithm to maximize the correlation coefficient. The specific settings are as follows: For the CA model: opinion resilience \(r = 0.99\), neighborhood influence coefficient \(w = 0.3\), opinion interaction threshold \(\epsilon = 0.5\); for the SIR model: infection rate \(\beta = 0.3\), recovery rate \(\gamma = 0.9\), decay rate \(\lambda = 0.5\). Based on the results in Fig. 1 and Table 1, we set the ratio between opinion leaders and opinion followers as 1:9.
+
+2. Model configurations (1) LLM: Simulations employ only LLM, without any intervention. (2) ABM(CA)5: We use ABM’s commonly employed CA model. (3) ABM(HK)8: The model employs the ABM’s commonly employed HK model. (4) ABM(PM)12: We employ Duggins’ Psychologically-Motivated ABM model. (5) ABM(RLE)11: We employ Carpentras’ ABM model which based on real life experimen. (6) LLM+ABM(CA): We simulate opinion leaders through LLM, while ABM uses the CA model to simulate group attitudes.
+
+Indicator
+
+We evaluate the effectiveness of the models in simulation using two indicators.
+
+1.
+
+Pearson Correlation Coefficient (Corr.) is used to measure the linear correlation between the simulated attitude sequence \(S=\left( s_1,s_2,\ldots ,s_n\right)\) and the real attitude sequence \(T=\left( t_1,t_2,\ldots ,t_n\right).\)The formula is as follows:
+
+$$\begin{aligned} r = \frac{\sum _{i=1}^{n}\left( s_i-\bar{s}\right) \left( t_i-\bar{t}\right) }{\sqrt{\sum _{i=1}^{n}\left( s_i-\bar{s}\right) ^2} \sqrt{\sum _{i=1}^{n}\left( t_i-\bar{t}\right) ^2}} \end{aligned}$$
+
+(5)
+
+where \(\bar{s}\) and \(\bar{t}\) are the mean values of the simulated and real attitudes, respectively. The Corr. ranges from [-1, 1], and the closer the value to 1, the stronger the linear correlation between the simulated and real attitudes, indicating that the model better captures changes in real attitudes.
+
+2.
+
+Dynamic Time Warping (DTW) is used to measure the similarity between the simulated attitude sequence S and the real attitude sequence T, especially when the two sequences differ in length or have temporal changes. DTW aligns the two sequences by calculating the minimum cumulative distance. The formula is as follows:
+
+$$\begin{aligned} DTW(S, T) = \min {\sqrt{\sum _{k=1}^{K} \left( s_{i_k} - t_{j_k}\right) ^2}} \end{aligned}$$
+
+(6)
+
+where \(\left( i_k, j_k\right)\) signifies the aligned points in sequences S and T, and K is the length of the alignment path. A smaller DTW distance indicates a higher similarity between the time series of the simulated and real attitudes, signifying that the model performs better in simulating complex time series patterns. We can better evaluate the model’s accuracy and robustness in dynamic environments using DTW.
+
+Main result
+
+Fig. 6
+
+The alternative text for this image may have been generated using AI.
+Full size image
+
+Comparison of Real and Simulated Result on (a) Pangmao Incident (b) Jiangping Incident (c) Qingdao Incident (d) Dianduji Incident. The red lines represent actual data.
+
+Table 2 Comparison of Real and Simulated Results. The best results are highlighted by Bold and the second-best results are marked by Italic.
+Full size table
+
+This study focuses on social news events characterized by a rapid rise in attention and a quick loss of popularity. The loss of popularity directly reduces extreme (radical) attitudes and increases neutral and rational analysts. From our analysis of genuine attitude data, we found a key feature of social news events. After the event loses attention or the truth is exposed, attitudes stabilize, and the group attitude tends to approach 0 (group neutrality).
+
+Our FDE-LLM model integrates the SIR model to constrain the attitudes of opinion followers, effectively simulating the loss characteristic of group attitudes. Compared to the LLM+ABM model, which emphasizes only the attitude changes prompted by news events, the FDE-LLM model enhances the natural attenuation of group attitudes on top of attitude changes, making the simulation of social news events more realistic. For example, as shown in Table 2, in the Pangmao event, the FDE-LLM model achieved the lowest DTW value of 0.3622, outperforming the LLM model by 86.38% (DTW = 2.6584) and demonstrating significantly higher correlation (Corr = 0.9653) compared to ABM(HK) (Corr = 0.6475). Similarly, in the Jiangping event, the FDE-LLM model achieved a DTW value of 0.3664, substantially lower than LLM (DTW = 2.9963), 
+
+[… truncated 13305 chars …]

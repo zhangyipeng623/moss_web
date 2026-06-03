@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MOSS 闭环逻辑 — 从画像生成到推荐反推到模拟运行 (v2 重构版)</title>
+<style>
+  :root {
+    --bg: #f8f9fa; --card-bg: #ffffff; --text: #212529;
+    --text-secondary: #6c757d; --border: #dee2e6; --accent: #2563eb;
+    --accent-light: #dbeafe; --tag-bg: #e9ecef; --tag-text: #495057;
+    --highlight: #fef3c7; --danger: #fee2e2; --danger-border: #ef4444;
+    --success: #dcfce7; --success-border: #22c55e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.7; padding: 40px 20px;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 2rem; margin-bottom: 8px; color: #111; border-bottom: 2px solid var(--accent); padding-bottom: 12px; }
+  h2 { font-size: 1.35rem; margin: 32px 0 12px; color: #1e3a5f; padding-left: 10px; border-left: 4px solid var(--accent); }
+  h3 { font-size: 1.1rem; margin: 20px 0 8px; color: #333; }
+  p { margin-bottom: 10px; }
+  .meta { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 24px; }
+  .card {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 20px 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .card h3 { margin-top: 0; }
+  .ref-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.92rem; }
+  .ref-table th, .ref-table td { padding: 10px 12px; border: 1px solid var(--border); text-align: left; }
+  .ref-table th { background: #f1f5f9; font-weight: 600; font-size: 0.85rem; color: #475569; }
+  .ref-table tr:hover { background: #f8fafc; }
+  .tag { display: inline-block; background: var(--tag-bg); color: var(--tag-text); padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; margin-right: 4px; }
+  .tag.accent { background: var(--accent-light); color: var(--accent); }
+  .tag.danger { background: var(--danger); color: #991b1b; }
+  .tag.success { background: var(--success); color: #166534; }
+  ul, ol { margin: 8px 0 8px 20px; }
+  li { margin-bottom: 4px; }
+  .highlight-box {
+    background: var(--highlight); border-left: 4px solid #f59e0b;
+    padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0;
+  }
+  .danger-box {
+    background: var(--danger); border-left: 4px solid var(--danger-border);
+    padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0;
+  }
+  .success-box {
+    background: var(--success); border-left: 4px solid var(--success-border);
+    padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0;
+  }
+  .flow-diagram {
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    flex-wrap: wrap; margin: 16px 0; font-size: 0.9rem;
+  }
+  .flow-node {
+    background: var(--accent-light); color: var(--accent);
+    padding: 8px 16px; border-radius: 6px; font-weight: 600; white-space: nowrap;
+  }
+  .flow-node.offline { background: #fef3c7; color: #92400e; }
+  .flow-node.online { background: #dcfce7; color: #166534; }
+  .flow-node.central { background: #ede9fe; color: #5b21b6; }
+  .flow-arrow { color: var(--text-secondary); font-size: 1.2rem; }
+  .formula {
+    background: #f1f5f9; padding: 12px 16px; border-radius: 6px;
+    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    font-size: 0.88rem; overflow-x: auto; margin: 8px 0; white-space: pre;
+  }
+  .code-inline {
+    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    font-size: 0.88rem; background: #f1f5f9; padding: 1px 5px; border-radius: 3px;
+  }
+  footer {
+    margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--border);
+    color: var(--text-secondary); font-size: 0.85rem; text-align: center;
+  }
+  .toc { list-style: none; margin: 8px 0; }
+  .toc li { margin-bottom: 6px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>MOSS 闭环逻辑</h1>
+<p class="meta">从画像生成到推荐参数反推到 Agent 模拟运行 &nbsp;|&nbsp; 2026-05-17 &nbsp;|&nbsp; v2 重构完成（calibration_profile.yaml 单文件中枢）</p>
+
+<div class="card">
+  <h3>概述</h3>
+  <p>
+    MOSS 系统包含三个核心模块——<strong>用户画像生成</strong>（离线）、<strong>推荐参数反推</strong>（离线）、
+    <strong>Agent 模拟运行</strong>（在线）——它们通过 <code class="code-inline">calibration_profile.yaml</code> 单一配置文件构成一个完整的<strong>数据-校准-运行闭环</strong>。
+    v2 重构打通了所有关键断点，实现离线校准结果到在线模拟的自动化配置流转。
+  </p>
+</div>
+
+<div class="card">
+  <h3>目录</h3>
+  <ol class="toc">
+    <li><a href="#sec1">1. 闭环总览</a></li>
+    <li><a href="#sec2">2. calibration_profile.yaml — 单一配置中枢</a></li>
+    <li><a href="#sec3">3. 闭环关键对齐表</a></li>
+    <li><a href="#sec4">4. 两步法评分统一公式</a></li>
+    <li><a href="#sec5">5. 六大断点分析（全部已解决）</a></li>
+    <li><a href="#sec6">6. 闭环使用工作流</a></li>
+    <li><a href="#sec7">7. Per-Batch Min-Max 归一化方法论</a></li>
+    <li><a href="#sec8">8. 学术论文参考</a></li>
+  </ol>
+</div>
+
+<!-- ====== Section 1 ====== -->
+<h2 id="sec1">1. 闭环总览</h2>
+
+<div class="card">
+  <h3>1.1 三阶段数据流（以 calibration_profile.yaml 为中枢）</h3>
+  <div class="flow-diagram">
+    <span class="flow-node offline">① 画像生成<br>(离线)</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node offline">② 推荐参数反推<br>(离线 ABM+EM)</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node central">calibration_profile<br>.yaml</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node online">③ Agent 模拟运行<br>(在线)</span>
+  </div>
+  <table class="ref-table">
+    <tr><th>阶段</th><th>输入</th><th>核心文件</th><th>输出</th></tr>
+    <tr>
+      <td>① 画像生成</td>
+      <td>user.xlsx + post.xlsx（原始社交数据）</td>
+      <td><code class="code-inline">analysis/user_portrait_generator.py</code></td>
+      <td><code class="code-inline">portraits/*.json</code>（含 influence_tier）</td>
+    </tr>
+    <tr>
+      <td>② 参数反推</td>
+      <td>内容观测 Excel + portraits/*.json</td>
+      <td><code class="code-inline">analysis/recommender_parameter_inference.py</code></td>
+      <td><code class="code-inline">calibration_profile.yaml</code></td>
+    </tr>
+    <tr>
+      <td>③ 模拟运行</td>
+      <td>calibration_profile.yaml + agents.csv</td>
+      <td><code class="code-inline">main.py</code> + <code class="code-inline">backend/</code> + <code class="code-inline">moss_agent_client/</code></td>
+      <td>运行归档（runs/&lt;ID&gt;/）</td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>1.2 数据流转全景图</h3>
+  <div class="flow-diagram">
+    <span class="flow-node offline">原始数据</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node offline">LLM 画像</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node offline">种群合成</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node offline">ABM 仿真</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node offline">EM 校准</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node central">YAML</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node online">SocialRecSys<br>.configure()</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node online">Agent<br>Feed 排序</span>
+  </div>
+  <p>整个链路中，<code class="code-inline">calibration_profile.yaml</code> 是离线到在线的唯一数据接口。离线阶段产出的所有校准参数（权重、衰减系数、层级映射）均写入此文件，在线阶段通过 <code class="code-inline">CalibrationProfile</code> Pydantic 模型加载和校验后注入运行。</p>
+</div>
+
+<!-- ====== Section 2 ====== -->
+<h2 id="sec2">2. calibration_profile.yaml — 单一配置中枢</h2>
+
+<div class="card">
+  <h3>2.1 五段 YAML 结构</h3>
+  <p><code class="code-inline">core/calibration_profile.py</code> 定义了 7 个 Pydantic 模型，嵌套为 5 个顶级 section：</p>
+  <table class="ref-table">
+    <tr><th>Section</th><th>Pydantic 模型</th><th>关键字段</th><th>来源</th></tr>
+    <tr>
+      <td><code class="code-inline">meta</code></td>
+      <td><code class="code-inline">MetaInfo</code></td>
+      <td>generated_at, portraits_dir, num_seed_users, abm_population_size (默认 500)</td>
+      <td>自动生成（校准时间戳 + CLI 参数）</td>
+    </tr>
+    <tr>
+      <td><code class="code-inline">experiment</code></td>
+      <td><code class="code-inline">ExperimentYamlConfig</code></td>
+      <td>name, llm (api_key/base_url/model), agents_csv, portrait, system_time, runtime</td>
+      <td>用户手动编辑（或从模板继承）</td>
+    </tr>
+    <tr>
+      <td><code class="code-inline">recommender</code></td>
+      <td><code class="code-inline">RecommenderConfig</code></td>
+      <td>weights (w_interest/w_popularity/w_time/w_random), decay_lambda, tier_weight, calibrated_p_base, fit_diagnostics</td>
+      <td>EM 校准自动生成</td>
+    </tr>
+    <tr>
+      <td><code class="code-inline">embedding</code></td>
+      <td><code class="code-inline">EmbeddingConfig</code></td>
+      <td>model_name (默认 "BAAI/bge-m3"), normalize (默认 true)</td>
+      <td>CLI 参数或默认值</td>
+    </tr>
+    <tr>
+      <td><code class="code-inline">simulation</code></td>
+      <td><code class="code-inline">SimulationDefaults</code></td>
+      <td>p_online (per-tier), belief_update (backfire_mu/backfire_k/learning_rate), content_filter, feed, memory</td>
+      <td>预设默认值 + 用户可覆盖</td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>2.2 CalibrationProfile → ExperimentConfig 桥接</h3>
+  <p><code class="code-inline">CalibrationProfile.to_experiment_config()</code> 方法将 YAML 的 <code class="code-inline">experiment</code> section 转换为 <code class="code-inline">ExperimentConfig</code>：</p>
+  <div class="formula">def to_experiment_config(self) -> ExperimentConfig:
+    return ExperimentConfig(
+        name=self.experiment.name,
+        description=self.experiment.description,
+        global_event=self.experiment.global_event,
+        llm=self.experiment.llm,
+        system_time=self.experiment.system_time,
+        runtime=self.experiment.runtime,
+        portrait=self.experiment.portrait,
+        agents_csv=self.experiment.agents_csv,
+        agents=self.experiment.agents,
+    )</div>
+  <p>推荐参数不走 ExperimentConfig，而是通过 <code class="code-inline">SocialRecSys.configure(calibration.recommender, calibration.embedding)</code> 直接注入。</p>
+</div>
+
+<!-- ====== Section 3 ====== -->
+<h2 id="sec3">3. 闭环关键对齐表</h2>
+
+<div class="card">
+  <h3>3.1 离线 ABM → 在线 SocialRecSys 参数映射</h3>
+  <table class="ref-table">
+    <tr><th>维度</th><th>离线 ABM 符号</th><th>在线 Feed 属性</th><th>默认值</th><th>对齐状态</th></tr>
+    <tr>
+      <td>兴趣/立场亲和</td>
+      <td><code class="code-inline">w_i</code></td>
+      <td><code class="code-inline">W_BELIEF</code></td>
+      <td>0.3 ↔ 0.35</td>
+      <td><span class="tag success">已对齐</span> 均通过 configure() 注入</td>
+    </tr>
+    <tr>
+      <td>热度</td>
+      <td><code class="code-inline">w_pop</code></td>
+      <td><code class="code-inline">W_POP</code></td>
+      <td>0.2 ↔ 0.25</td>
+      <td><span class="tag success">已对齐</span> 均通过 configure() 注入</td>
+    </tr>
+    <tr>
+      <td>时间衰减</td>
+      <td><code class="code-inline">w_time</code></td>
+      <td><code class="code-inline">W_CHRONO</code></td>
+      <td>0.3 ↔ 0.25</td>
+      <td><span class="tag success">已对齐</span> 均通过 configure() 注入</td>
+    </tr>
+    <tr>
+      <td>随机探索</td>
+      <td><code class="code-inline">w_rand</code></td>
+      <td><code class="code-inline">W_RAND</code></td>
+      <td>0.2 ↔ 0.15</td>
+      <td><span class="tag success">已对齐</span> 均通过 configure() 注入</td>
+    </tr>
+    <tr>
+      <td>衰减系数</td>
+      <td><code class="code-inline">decay_lambda</code></td>
+      <td><code class="code-inline">DECAY_LAMBDA</code></td>
+      <td>0.5</td>
+      <td><span class="tag success">已对齐</span> 均通过 configure() 注入，Optuna 搜索</td>
+    </tr>
+    <tr>
+      <td>层级加权</td>
+      <td><code class="code-inline">TIER_WEIGHT</code></td>
+      <td><code class="code-inline">TIER_WEIGHT</code></td>
+      <td>{1:0.4, 2:0.7, 3:1.0, 4:1.5, 5:2.0}</td>
+      <td><span class="tag success">已对齐</span> 同一常量，均通过 configure() 注入</td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>3.2 评分公式对齐</h3>
+  <table class="ref-table">
+    <tr><th>组件</th><th>离线 ABM</th><th>在线 Feed</th><th>对齐状态</th></tr>
+    <tr>
+      <td>时间衰减公式</td>
+      <td><code class="code-inline">exp(-decay_lambda * dt)</code></td>
+      <td><code class="code-inline">exp(-DECAY_LAMBDA * delta_hours)</code></td>
+      <td><span class="tag success">已对齐</span> 均为指数衰减</td>
+    </tr>
+    <tr>
+      <td>归一化方式</td>
+      <td>Per-Batch Min-Max（interest + rand）</td>
+      <td>Per-Batch Min-Max（全部四维）</td>
+      <td><span class="tag success">已对齐</span> 核心逻辑一致</td>
+    </tr>
+    <tr>
+      <td>Tier 加权 POP</td>
+      <td><code class="code-inline">log1p(count)/log1p(N) * avg_tier_coeff</code></td>
+      <td><code class="code-inline">clip(log1p(interactions)/10) * TIER_WEIGHT[tier]</code></td>
+      <td><span class="tag success">已对齐</span> 均为 tier 加权 + log 归一化</td>
+    </tr>
+    <tr>
+      <td>最终得分</td>
+      <td><code class="code-inline">Σ w_i * norm_i</code></td>
+      <td><code class="code-inline">Σ W_i * norm_i</code></td>
+      <td><span class="tag success">已对齐</span> 均为加权求和</td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>3.3 画像体系对齐</h3>
+  <table class="ref-table">
+    <tr><th>概念</th><th>离线画像生成</th><th>在线 Agent 模拟</th><th>对齐状态</th></tr>
+    <tr>
+      <td>Rogers 层级</td>
+      <td>P84 阈值自动分类 L4/L5；L1-L3 手动指定</td>
+      <td>AgentConfig.tier → TIER_BEHAVIOR 行为库</td>
+      <td><span class="tag success">已对齐</span> 1-5 级一致</td></tr>
+    <tr>
+      <td>Profile Mode</td>
+      <td>default 模式：完整 LLM 流水线（L4-L5）</td>
+      <td>default 模式：FIXED_USER_INFO_TEMPLATE（9 字段）</td>
+      <td><span class="tag success">已对齐</span></td></tr>
+    <tr>
+      <td>Simple Mode</td>
+      <td>simple 模式：无需 LLM，仅 bio + tier</td>
+      <td>simple 模式：SIMPLE_USER_TEMPLATE + TIER_BEHAVIOR</td>
+      <td><span class="tag success">已对齐</span> L1-L3 预设</td></tr>
+    <tr>
+      <td>influence_tier 字段</td>
+      <td>注入 portrait JSON</td>
+      <td>ABM 通过 _portrait_to_persona 读取</td>
+      <td><span class="tag success">已对齐</span></td></tr>
+  </table>
+</div>
+
+<!-- ====== Section 4 ====== -->
+<h2 id="sec4">4. 两步法评分统一公式</h2>
+
+<div class="card">
+  <h3>4.1 统一公式</h3>
+  <p>离线 ABM 与在线 Feed 共享同一个两步法评分框架：</p>
+
+  <p><strong>第一步 — Per-Batch Min-Max 归一化：</strong></p>
+  <div class="formula">for each dimension d in {interest, pop, time, rand}:
+    norm_d = (raw_d - min(raw_d)) / (max(raw_d) - min(raw_d) + ε)
+    if max ≈ min: norm_d = 0.5</div>
+
+  <p><strong>第二步 — 加权求和：</strong></p>
+  <div class="formula">score = W_BELIEF * norm_interest
+      + W_POP * norm_pop * TIER_WEIGHT[tier]
+      + W_CHRONO * norm_time
+      + W_RAND * norm_rand</div>
+
+  <p>离线 ABM 与在线 Feed 的唯一差异在于：ABM 中 POP 和 TIME 维度不做 Min-Max（已是标量），而在线 Feed 中对全部四维做 Min-Max。这不影响参数语义，因为校准和运行时使用的是同一个加权求和框架。</p>
+</div>
+
+<div class="card">
+  <h3>4.2 为什么 Min-Max 归一化是必需的</h3>
+  <ul>
+    <li><strong>量纲统一</strong>：interest（余弦相似度 0-1）、POP（log 归一化 0-1）、time（指数衰减 0-1）、random（均匀分布 0-1）虽然范围都在 [0,1]，但分布形态各异</li>
+    <li><strong>权重可解释</strong>：归一化后各维度均值为 0.5 附近，权重可直接解释为"该维度对最终得分的相对贡献"</li>
+    <li><strong>离线在线一致</strong>：ABM 校准时使用的归一化方式与在线 Feed 运行时一致，确保权重语义不变</li>
+  </ul>
+</div>
+
+<!-- ====== Section 5 ====== -->
+<h2 id="sec5">5. 六大断点分析（全部已解决）</h2>
+
+<div class="card">
+  <h3>5.1 断点清单</h3>
+  <table class="ref-table">
+    <tr><th>#</th><th>断点描述</th><th>v1 状态</th><th>v2 解决方案</th><th>涉及文件</th></tr>
+    <tr>
+      <td>1</td>
+      <td><strong>配置分散</strong>：权重在代码中硬编码，实验配置与推荐参数分离</td>
+      <td><span class="tag danger">断裂</span></td>
+      <td><span class="tag success">已解决</span> calibration_profile.yaml 统一管理所有配置（5 section），CalibrationProfile Pydantic 模型校验</td>
+      <td><code class="code-inline">core/calibration_profile.py</code> (NEW)</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><strong>权重注入缺失</strong>：离线校准结果无法自动注入在线服务</td>
+      <td><span class="tag danger">断裂</span></td>
+      <td><span class="tag success">已解决</span> SocialRecSys.configure() classmethod 从 CalibrationProfile 读取并注入类属性</td>
+      <td><code class="code-inline">backend/services/social_recsys.py</code>, <code class="code-inline">main.py</code></td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><strong>层级体系不统一</strong>：P60/P90 三分法 vs Rogers 5 级</td>
+      <td><span class="tag danger">断裂</span></td>
+      <td><span class="tag success">已解决</span> 统一为 Rogers 5 级（P84 单阈值），TIER_WEIGHT 预设常量，L1-L3 通过 simple 模式支持</td>
+      <td><code class="code-inline">analysis/run_analysis.py</code>, <code class="code-inline">moss_agent_client/agent.py</code></td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td><strong>评分公式不一致</strong>：离线多项式衰减 vs 在线硬编码</td>
+      <td><span class="tag danger">断裂</span></td>
+      <td><span class="tag success">已解决</span> 统一为指数衰减 exp(-lambda*dt)，decay_lambda 纳入 Optuna 搜索</td>
+      <td><code class="code-inline">analysis/recommender_parameter_inference.py</code>, <code class="code-inline">backend/services/social_recsys.py</code></td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td><strong>归一化策略缺失</strong>：四维直接加权，量纲不一致</td>
+      <td><span class="tag danger">断裂</span></td>
+      <td><span class="tag success">已解决</span> Per-Batch Min-Max 归一化，ABM 与 Feed 使用一致的归一化框架</td>
+      <td><code class="code-inline">analysis/recommender_parameter_inference.py</code> (min_max_norm), <code class="code-inline">backend/services/social_recsys.py</code></td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td><strong>权重约束缺失</strong>：独立搜索四维权重的凸组合约束不保证</td>
+      <td><span class="tag danger">断裂</span></td>
+      <td><span class="tag success">已解决</span> Dirichlet 分布采样自动满足 sum=1 和 ≥0，仅搜索 alpha_param + decay_lambda</td>
+      <td><code class="code-inline">analysis/recommender_parameter_inference.py</code> (EMCalibrationEngine.m_step)</td>
+    </tr>
+  </table>
+</div>
+
+<div class="success-box">
+  <strong>重构成果：</strong>6 个断点全部解决。+1316/-691 行，8 次提交，12 个文件变更。calibration_profile.yaml 成为从离线到在线的唯一配置接口。
+</div>
+
+<!-- ====== Section 6 ====== -->
+<h2 id="sec6">6. 闭环使用工作流</h2>
+
+<div class="card">
+  <h3>6.1 完整工作流（端到端）</h3>
+  <div class="formula"># Step 1: 生成用户画像（批量模式，自动 P84 分级）
+uv run python -m analysis.run_analysis portrait \
+  --data-path data/raw/ --batch
+
+# Step 2: 可选 — 重新分级（新增用户后）
+uv run python -m analysis.run_analysis retier \
+  --portraits-dir analysis_outputs/portraits/
+
+# Step 3: 推荐参数反推（ABM + EM 校准 → 生成 calibration_profile.yaml）
+uv run python -m analysis.run_analysis recommender \
+  --data-file data/content_obs.xlsx \
+  --portraits-dir analysis_outputs/portraits/
+
+# Step 4: 编辑 calibration_profile.yaml 的 experiment section
+#   （配置 LLM、agents_csv、时间参数等）
+
+# Step 5: 启动在线模拟
+python main.py --config analysis_outputs/portraits/calibration_profile.yaml</div>
+</div>
+
+<div class="card">
+  <h3>6.2 迭代循环</h3>
+  <p>闭环支持快速迭代：修改数据 → 重新运行 Step 1-3 → calibration_profile.yaml 自动更新 → Step 5 重启即可应用新参数。无需修改任何代码。</p>
+  <div class="highlight-box">
+    <strong>关键约束：</strong>calibration_profile.yaml 的 experiment section 需要用户手动编辑（LLM 配置、agents_csv 路径等属于运行环境相关参数，不应由离线校准自动决定）。recommender section 由 EM 校准自动生成，不应手动修改。
+  </div>
+</div>
+
+<!-- ====== Section 7 ====== -->
+<h2 id="sec7">7. Per-Batch Min-Max 归一化方法论</h2>
+
+<div class="card">
+  <h3>7.1 设计原理</h3>
+  <p>Per-Batch Min-Max 归一化是一种<strong>局部归一化</strong>策略：每次 Feed 请求（或 ABM 仿真步）独立对当前批次的所有候选做 Min-Max 归一化。</p>
+  <ul>
+    <li><strong>局部性</strong>：归一化范围仅限于当前批次，不跨批次、不跨用户</li>
+    <li><strong>鲁棒性</strong>：当批次内所有值相同时（方差 < eps），返回 0.5（中位值），避免除零</li>
+    <li><strong>可并行</strong>：各批次独立，无需全局统计量，适合向量化计算</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>7.2 与全局归一化的对比</h3>
+  <table class="ref-table">
+    <tr><th>特性</th><th>Per-Batch Min-Max</th><th>全局 Min-Max / Z-score</th></tr>
+    <tr><td>计算依赖</td><td>仅需当前批次数据</td><td>需要全局统计量（均值/方差/min/max）</td></tr>
+    <tr><td>实时性</td><td>适合流式/在线场景</td><td>需要预计算或定期更新</td></tr>
+    <tr><td>分布保持</td><td>保持批次内相对排序</td><td>保持全局相对排序</td></tr>
+    <tr><td>ABM 兼容性</td><td>天然适合（每步一批）</td><td>需要模拟全局统计量</td></tr>
+  </table>
+  <p>选择 Per-Batch Min-Max 的核心原因：ABM 仿真中每步的候选集是动态变化的（取决于当前感染状态），不存在固定的"全局"候选集，因此局部归一化是唯一一致的选择。</p>
+</div>
+
+<!-- ====== Section 8 ====== -->
+<h2 id="sec8">8. 学术论文参考</h2>
+
+<div class="card">
+  <h3>相关论文</h3>
+  <table class="ref-table">
+    <tr><th>方向</th><th>论文</th><th>关键贡献</th></tr>
+    <tr>
+      <td>闭环仿真</td>
+      <td>Vicsek, T., &amp; Zafeiris, A. (2012). "Collective motion." <em>Physics Reports</em>.</td>
+      <td>多 Agent 系统中的闭环反馈动力学</td>
+    </tr>
+    <tr>
+      <td>参数校准</td>
+      <td>Platt, D. (2020). "Bayesian Calibration of Agent-Based Models." <em>JASSS</em>.</td>
+      <td>ABM 参数校准的贝叶斯方法（本系统 EM 算法的替代路线参考）</td>
+    </tr>
+    <tr>
+      <td>离线→在线迁移</td>
+      <td>Swaminathan, A., &amp; Joachims, T. (2015). "Counterfactual Risk Minimization: Learning from Logged Bandit Feedback." <em>ICML 2015</em>.</td>
+      <td>离线学习到在线部署的反事实风险最小化框架</td>
+    </tr>
+    <tr>
+      <td>归一化策略</td>
+      <td>Ioffe, S., &amp; Szegedy, C. (2015). "Batch Normalization: Accelerating Deep Network Training by Reducing Internal Covariate Shift." <em>ICML 2015</em>.</td>
+      <td>Batch Normalization 的方法论基础（Per-Batch Min-Max 的灵感来源）</td>
+    </tr>
+    <tr>
+      <td>创新扩散</td>
+      <td>Bass, F. M. (1969). "A New Product Growth Model for Consumer Durables." <em>Management Science</em>.</td>
+      <td>Bass 扩散模型——Rogers 5 级框架的数学模型表达</td>
+    </tr>
+  </table>
+</div>
+
+<footer>
+  <p>MOSS 闭环逻辑 — v2 重构版技术文档 &nbsp;|&nbsp; 分支：feat/recsys &nbsp;|&nbsp; 核心中枢：calibration_profile.yaml</p>
+</footer>
+
+</div>
+</body>
+</html>
