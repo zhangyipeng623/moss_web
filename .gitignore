@@ -50,3 +50,5 @@ frontend/dist/
 # ===== 临时文件 =====
 test.py
 *.tmp
+
+.reasonix/truncated-results

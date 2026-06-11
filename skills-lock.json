@@ -30,6 +30,12 @@
       "sourceType": "github",
       "skillPath": "deep-research/SKILL.md",
       "computedHash": "fcc1cbb49cdd98a68c1edeb90a8dcee48534ec3a1f4f48cf9cfa43adeb78ac88"
+    },
+    "paper-search": {
+      "source": "ykdojo/paper-search",
+      "sourceType": "github",
+      "skillPath": "skills/paper-search/SKILL.md",
+      "computedHash": "d45a68a1d32998a99cc1ce254f23c980001aa527e9abbd52dc638bbdbdc5803a"
     }
   }
 }
