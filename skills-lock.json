@@ -36,6 +36,12 @@
       "sourceType": "github",
       "skillPath": "skills/paper-search/SKILL.md",
       "computedHash": "d45a68a1d32998a99cc1ce254f23c980001aa527e9abbd52dc638bbdbdc5803a"
+    },
+    "ppt-master": {
+      "source": "hugohe3/ppt-master",
+      "sourceType": "github",
+      "skillPath": "skills/ppt-master/SKILL.md",
+      "computedHash": "bace4508ca62b59623c5d5961387400bebbead7069a755102441242ac603aee6"
     }
   }
 }
