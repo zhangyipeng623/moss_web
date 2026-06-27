@@ -1,0 +1,124 @@
+meta:
+  theme: tech-blue
+  layout: horizontal
+  canvas: 980x540
+  routing: orthogonal
+  source: generated
+  title: "图2 用户画像生成五阶段流水线"
+  font:
+    primary: Microsoft YaHei
+    cjk: Microsoft YaHei
+    formula: Cambria Math
+
+nodes:
+  # ===== 输入区 =====
+  - id: band_input
+    label: "输入 · 原始数据"
+    type: text
+    bounds: { x: 60, y: 70, width: 220, height: 28 }
+    style: { fontColor: "#1B3A5B", fontSize: 15, bold: true, align: left, verticalAlign: middle }
+  - id: in_user
+    label: "user 表\n发帖 / 互动 / 活跃时段 / 粉丝数"
+    type: document
+    bounds: { x: 60, y: 110, width: 220, height: 64 }
+    style: { fillColor: "#E7EEF5", strokeColor: "#1B3A5B", fontColor: "#1B3A5B", strokeWidth: 2, fontSize: 12 }
+  - id: in_post
+    label: "post 表\n影响力指标 · 高质量证据帖筛选"
+    type: document
+    bounds: { x: 60, y: 196, width: 220, height: 64 }
+    style: { fillColor: "#E7EEF5", strokeColor: "#1B3A5B", fontColor: "#1B3A5B", strokeWidth: 2, fontSize: 12 }
+
+  # ===== 分层调度 =====
+  - id: band_tier
+    label: "影响力分层调度"
+    type: text
+    bounds: { x: 60, y: 330, width: 220, height: 28 }
+    style: { fontColor: "#7A5E1A", fontSize: 15, bold: true, align: left, verticalAlign: middle }
+  - id: tier_high
+    label: "L4–L5 高影响力\n完整五阶段流水线"
+    type: process
+    bounds: { x: 60, y: 368, width: 220, height: 60 }
+    style: { fillColor: "#F6EDD6", strokeColor: "#C8A24B", fontColor: "#7A5E1A", strokeWidth: 2, fontSize: 12 }
+  - id: tier_low
+    label: "L1–L3 普通用户\nsimple profile · 行为库"
+    type: process
+    bounds: { x: 60, y: 444, width: 220, height: 60 }
+    style: { fillColor: "#EFEAE0", strokeColor: "#8C8C82", fontColor: "#5A5A52", strokeWidth: 2, fontSize: 12 }
+
+  # ===== 五阶段流水线 =====
+  - id: band_pipe
+    label: "五阶段 LLM 流水线"
+    type: text
+    bounds: { x: 360, y: 70, width: 360, height: 28 }
+    style: { fontColor: "#1B3A5B", fontSize: 15, bold: true, align: left, verticalAlign: middle }
+  - id: s_a
+    label: "A 证据抽取\n并行分块 · 关键行为提取"
+    type: process
+    bounds: { x: 360, y: 110, width: 240, height: 60 }
+    style: { fillColor: "#E3EAF1", strokeColor: "#4A6B8A", fontColor: "#2C4257", strokeWidth: 2, fontSize: 12 }
+  - id: s_b
+    label: "B 稳定画像\n兴趣 · 立场 · 风格 · 角色"
+    type: process
+    bounds: { x: 360, y: 194, width: 240, height: 60 }
+    style: { fillColor: "#E3EAF1", strokeColor: "#4A6B8A", fontColor: "#2C4257", strokeWidth: 2, fontSize: 12 }
+  - id: s_c
+    label: "C 行为画像\n活跃模式 · 动作概率 · 触发规则"
+    type: process
+    bounds: { x: 360, y: 278, width: 240, height: 60 }
+    style: { fillColor: "#E3EAF1", strokeColor: "#4A6B8A", fontColor: "#2C4257", strokeWidth: 2, fontSize: 12 }
+  - id: s_d
+    label: "D Agent 画像压缩\n单主人格 · 表达 / 行动 / 回避规则"
+    type: process
+    bounds: { x: 360, y: 362, width: 240, height: 60 }
+    style: { fillColor: "#E3EAF1", strokeColor: "#4A6B8A", fontColor: "#2C4257", strokeWidth: 2, fontSize: 12 }
+  - id: s_e
+    label: "E 模拟初始状态\n情绪 · 目标 · 关注话题"
+    type: process
+    bounds: { x: 360, y: 446, width: 240, height: 60 }
+    style: { fillColor: "#E3EAF1", strokeColor: "#4A6B8A", fontColor: "#2C4257", strokeWidth: 2, fontSize: 12 }
+
+  # ===== 输出 =====
+  - id: band_out
+    label: "输出 · 结构化画像"
+    type: text
+    bounds: { x: 690, y: 70, width: 240, height: 28 }
+    style: { fontColor: "#7A5E1A", fontSize: 15, bold: true, align: left, verticalAlign: middle }
+  - id: out_json
+    label: "portraits/*.json"
+    type: database
+    bounds: { x: 700, y: 130, width: 220, height: 72 }
+    style: { fillColor: "#C8A24B", strokeColor: "#1B3A5B", fontColor: "#FFFFFF", strokeWidth: 2, fontSize: 14, bold: true }
+  - id: f_stable
+    label: "stable_profile\n兴趣 · 立场 · 风格 · 角色"
+    type: document
+    bounds: { x: 690, y: 230, width: 240, height: 60 }
+    style: { fillColor: "#FFFFFF", strokeColor: "#C8A24B", fontColor: "#7A5E1A", strokeWidth: 1.5, fontSize: 11 }
+  - id: f_behavior
+    label: "behavior_profile\n活跃模式 · 动作偏好 · 触发规则"
+    type: document
+    bounds: { x: 690, y: 298, width: 240, height: 60 }
+    style: { fillColor: "#FFFFFF", strokeColor: "#C8A24B", fontColor: "#7A5E1A", strokeWidth: 1.5, fontSize: 11 }
+  - id: f_agent
+    label: "agent_profile\n身份 / 兴趣 / 价值 / 风格摘要"
+    type: document
+    bounds: { x: 690, y: 366, width: 240, height: 60 }
+    style: { fillColor: "#FFFFFF", strokeColor: "#C8A24B", fontColor: "#7A5E1A", strokeWidth: 1.5, fontSize: 11 }
+  - id: f_sim
+    label: "simulation_init\n情绪 · 目标 · influence_tier"
+    type: document
+    bounds: { x: 690, y: 434, width: 240, height: 60 }
+    style: { fillColor: "#FFFFFF", strokeColor: "#C8A24B", fontColor: "#7A5E1A", strokeWidth: 1.5, fontSize: 11 }
+
+edges:
+  - { from: in_user, to: s_a, type: data, style: { strokeColor: "#1B3A5B", strokeWidth: 2 } }
+  - { from: in_post, to: s_a, type: data, style: { strokeColor: "#1B3A5B", strokeWidth: 2 } }
+  - { from: tier_high, to: s_a, type: data, label: "完整流水线", style: { strokeColor: "#C8A24B", strokeWidth: 2 } }
+  - { from: s_a, to: s_b, type: primary, style: { strokeColor: "#4A6B8A", strokeWidth: 2 } }
+  - { from: s_b, to: s_c, type: primary, style: { strokeColor: "#4A6B8A", strokeWidth: 2 } }
+  - { from: s_c, to: s_d, type: primary, style: { strokeColor: "#4A6B8A", strokeWidth: 2 } }
+  - { from: s_d, to: s_e, type: primary, style: { strokeColor: "#4A6B8A", strokeWidth: 2 } }
+  - { from: s_b, to: f_stable, type: data, style: { strokeColor: "#C8A24B", strokeWidth: 1.5, dashed: true } }
+  - { from: s_c, to: f_behavior, type: data, style: { strokeColor: "#C8A24B", strokeWidth: 1.5, dashed: true } }
+  - { from: s_d, to: f_agent, type: data, style: { strokeColor: "#C8A24B", strokeWidth: 1.5, dashed: true } }
+  - { from: s_e, to: f_sim, type: data, style: { strokeColor: "#C8A24B", strokeWidth: 1.5, dashed: true } }
+  - { from: s_e, to: out_json, type: primary, label: "汇聚", style: { strokeColor: "#C8A24B", strokeWidth: 2.5 } }

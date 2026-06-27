@@ -1,0 +1,127 @@
+meta:
+  theme: tech-blue
+  layout: vertical
+  canvas: 1160x620
+  routing: orthogonal
+  source: generated
+  title: "图6 MOSS 平台系统总体架构"
+  font:
+    primary: Microsoft YaHei
+    cjk: Microsoft YaHei
+    formula: Cambria Math
+
+nodes:
+  # ===================== 表示层 泳道 =====================
+  - id: lane_ui
+    label: " "
+    type: process
+    bounds: { x: 40, y: 60, width: 1080, height: 110 }
+    style: { fillColor: "#EEF3F8", strokeColor: "#C9D6E3", fontColor: "#1B3A5B", strokeWidth: 1.5, fontSize: 12 }
+  - id: lane_ui_tag
+    label: "表示层"
+    type: process
+    bounds: { x: 40, y: 60, width: 110, height: 110 }
+    style: { fillColor: "#1B3A5B", strokeColor: "#1B3A5B", fontColor: "#FFFFFF", strokeWidth: 1.5, fontSize: 14, bold: true }
+  - id: ui_front
+    label: "前端单页应用\nReact 19 · Vite · Tailwind v4"
+    type: service
+    bounds: { x: 200, y: 88, width: 360, height: 54 }
+    style: { fillColor: "#FFFFFF", strokeColor: "#1B3A5B", fontColor: "#1B3A5B", strokeWidth: 1.5, fontSize: 13 }
+  - id: ui_role
+    label: "用户交互界面\n信息流浏览 · 行为操作"
+    type: service
+    bounds: { x: 620, y: 88, width: 360, height: 54 }
+    style: { fillColor: "#FFFFFF", strokeColor: "#1B3A5B", fontColor: "#1B3A5B", strokeWidth: 1.5, fontSize: 13 }
+
+  # ===================== 应用层 泳道 =====================
+  - id: lane_app
+    label: " "
+    type: process
+    bounds: { x: 40, y: 196, width: 1080, height: 110 }
+    style: { fillColor: "#EAF0F6", strokeColor: "#C9D6E3", fontColor: "#1B3A5B", strokeWidth: 1.5, fontSize: 12 }
+  - id: lane_app_tag
+    label: "应用层 FastAPI"
+    type: process
+    bounds: { x: 40, y: 196, width: 110, height: 110 }
+    style: { fillColor: "#2C4257", strokeColor: "#2C4257", fontColor: "#FFFFFF", strokeWidth: 1.5, fontSize: 12, bold: true }
+  - id: app_api
+    label: "REST 路由\nfeed · posts · comments"
+    type: service
+    bounds: { x: 180, y: 224, width: 215, height: 54 }
+    style: { fillColor: "#FFFFFF", strokeColor: "#4A6B8A", fontColor: "#2C4257", strokeWidth: 1.5, fontSize: 12 }
+  - id: app_rec
+    label: "SocialRecSys 推荐系统"
+    type: service
+    bounds: { x: 410, y: 224, width: 215, height: 54 }
+    style: { fillColor: "#FFFFFF", strokeColor: "#4A6B8A", fontColor: "#2C4257", strokeWidth: 1.5, fontSize: 12 }
+  - id: app_time
+    label: "时间 / 内容管理\n模拟时钟 · 行为轨迹"
+    type: service
+    bounds: { x: 640, y: 224, width: 215, height: 54 }
+    style: { fillColor: "#FFFFFF", strokeColor: "#4A6B8A", fontColor: "#2C4257", strokeWidth: 1.5, fontSize: 12 }
+  - id: app_embed
+    label: "Embedding模型"
+    type: service
+    bounds: { x: 870, y: 224, width: 215, height: 54 }
+    style: { fillColor: "#FFFFFF", strokeColor: "#4A6B8A", fontColor: "#2C4257", strokeWidth: 1.5, fontSize: 12 }
+
+  # ===================== Agent 层 泳道 =====================
+  - id: lane_agent
+    label: " "
+    type: process
+    bounds: { x: 40, y: 332, width: 1080, height: 110 }
+    style: { fillColor: "#FBF5E6", strokeColor: "#E6D6A8", fontColor: "#7A5E1A", strokeWidth: 1.5, fontSize: 12 }
+  - id: lane_agent_tag
+    label: "Agent 层\n决策进程"
+    type: process
+    bounds: { x: 40, y: 332, width: 110, height: 110 }
+    style: { fillColor: "#C8A24B", strokeColor: "#C8A24B", fontColor: "#FFFFFF", strokeWidth: 1.5, fontSize: 13, bold: true }
+  - id: ag_graph
+    label: "AgentGraph 调度\nagents.csv · 画像注入"
+    type: service
+    bounds: { x: 200, y: 360, width: 270, height: 54 }
+    style: { fillColor: "#FFFFFF", strokeColor: "#C8A24B", fontColor: "#7A5E1A", strokeWidth: 1.5, fontSize: 12 }
+  - id: ag_loop
+    label: "决策循环 + 记忆系统\n发帖 / 评论 / 点赞 / 转发"
+    type: service
+    bounds: { x: 510, y: 360, width: 270, height: 54 }
+    style: { fillColor: "#FFFFFF", strokeColor: "#C8A24B", fontColor: "#7A5E1A", strokeWidth: 1.5, fontSize: 12 }
+  - id: ag_llm
+    label: "LangChain ChatOpenAI\n大 / 小模型分层驱动"
+    type: service
+    bounds: { x: 820, y: 360, width: 265, height: 54 }
+    style: { fillColor: "#FFFFFF", strokeColor: "#C8A24B", fontColor: "#7A5E1A", strokeWidth: 1.5, fontSize: 12 }
+
+  # ===================== 数据与配置层 泳道 =====================
+  - id: lane_data
+    label: " "
+    type: process
+    bounds: { x: 40, y: 468, width: 1080, height: 120 }
+    style: { fillColor: "#EDEFF2", strokeColor: "#C9CBD0", fontColor: "#2C4257", strokeWidth: 1.5, fontSize: 12 }
+  - id: lane_data_tag
+    label: "数据与\n配置层"
+    type: process
+    bounds: { x: 40, y: 468, width: 110, height: 120 }
+    style: { fillColor: "#4A6B8A", strokeColor: "#4A6B8A", fontColor: "#FFFFFF", strokeWidth: 1.5, fontSize: 13, bold: true }
+  - id: db_main
+    label: "SQLite + sqlite-vec\nmoss.db · 向量存储"
+    type: service
+    bounds: { x: 200, y: 500, width: 270, height: 56 }
+    style: { fillColor: "#FFFFFF", strokeColor: "#4A6B8A", fontColor: "#2C4257", strokeWidth: 1.5, fontSize: 12 }
+  - id: db_yaml
+    label: "calibration_profile.yaml\n配置中枢"
+    type: service
+    bounds: { x: 510, y: 500, width: 270, height: 56 }
+    style: { fillColor: "#FBF1D8", strokeColor: "#C8A24B", fontColor: "#7A5E1A", strokeWidth: 2, fontSize: 12, bold: true }
+  - id: db_runs
+    label: "runs/<运行ID>/ moss.db · 日志 · snapshot"
+    type: service
+    bounds: { x: 820, y: 500, width: 265, height: 56 }
+    style: { fillColor: "#FFFFFF", strokeColor: "#8C8C82", fontColor: "#5A5A52", strokeWidth: 1.5, fontSize: 12 }
+
+edges:
+  - { from: ui_front, to: app_api, type: primary, style: { strokeColor: "#1B3A5B", strokeWidth: 1.5 } }
+  - { from: app_rec, to: ag_loop, type: primary, style: { strokeColor: "#B24A38", strokeWidth: 1.5 } }
+  - { from: ag_graph, to: db_main, type: data, style: { strokeColor: "#4A6B8A", strokeWidth: 1.5, dashed: true } }
+  - { from: ag_loop, to: db_yaml, type: data, style: { strokeColor: "#C8A24B", strokeWidth: 1.5, dashed: true } }
+  - { from: ag_llm, to: db_runs, type: data, style: { strokeColor: "#8C8C82", strokeWidth: 1.5, dashed: true } }

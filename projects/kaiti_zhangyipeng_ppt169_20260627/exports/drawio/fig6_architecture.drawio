@@ -1,0 +1,85 @@
+<mxfile host="app.diagrams.net" agent="drawio-skill-cli">
+  <diagram name="Page-1" id="0">
+    <mxGraphModel dx="987" dy="763" grid="1" gridSize="8" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1320" pageHeight="720" background="#FFFFFF" math="1" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#EEF3F8;strokeColor=#C9D6E3;strokeWidth=1.5;fontColor=#1B3A5B;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value=" " vertex="1">
+          <mxGeometry height="110" width="1080" x="40" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="3" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#1B3A5B;strokeColor=#1B3A5B;strokeWidth=1.5;fontColor=#FFFFFF;fontSize=14;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center;fontStyle=1" value="表示层" vertex="1">
+          <mxGeometry height="110" width="110" x="40" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="4" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#FFFFFF;strokeColor=#1B3A5B;strokeWidth=1.5;fontColor=#1B3A5B;fontSize=13;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value="前端单页应用&amp;nbsp;&lt;div&gt;React 19 · Vite · Tailwind v4&lt;/div&gt;" vertex="1">
+          <mxGeometry height="54" width="360" x="200" y="88" as="geometry" />
+        </mxCell>
+        <mxCell id="5" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#FFFFFF;strokeColor=#1B3A5B;strokeWidth=1.5;fontColor=#1B3A5B;fontSize=13;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value="用户交互界面&amp;nbsp;&lt;div&gt;信息流浏览 · 行为操作&lt;/div&gt;" vertex="1">
+          <mxGeometry height="54" width="360" x="620" y="88" as="geometry" />
+        </mxCell>
+        <mxCell id="6" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#EAF0F6;strokeColor=#C9D6E3;strokeWidth=1.5;fontColor=#1B3A5B;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value=" " vertex="1">
+          <mxGeometry height="110" width="1080" x="40" y="196" as="geometry" />
+        </mxCell>
+        <mxCell id="7" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#2C4257;strokeColor=#2C4257;strokeWidth=1.5;fontColor=#FFFFFF;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center;fontStyle=1" value="应用层&amp;nbsp; FastAPI&amp;nbsp;" vertex="1">
+          <mxGeometry height="110" width="110" x="40" y="196" as="geometry" />
+        </mxCell>
+        <mxCell id="8" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#FFFFFF;strokeColor=#4A6B8A;strokeWidth=1.5;fontColor=#2C4257;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value="REST 路由&amp;nbsp;&lt;div&gt;feed · posts · comments&lt;/div&gt;" vertex="1">
+          <mxGeometry height="54" width="215" x="180" y="224" as="geometry" />
+        </mxCell>
+        <mxCell id="9" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#FFFFFF;strokeColor=#4A6B8A;strokeWidth=1.5;fontColor=#2C4257;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value="SocialRecSys 推荐系统" vertex="1">
+          <mxGeometry height="54" width="215" x="410" y="224" as="geometry" />
+        </mxCell>
+        <mxCell id="10" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#FFFFFF;strokeColor=#4A6B8A;strokeWidth=1.5;fontColor=#2C4257;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value="时间 / 内容管理&lt;div&gt;&amp;nbsp;模拟时钟 · 行为轨迹&lt;/div&gt;" vertex="1">
+          <mxGeometry height="54" width="215" x="640" y="224" as="geometry" />
+        </mxCell>
+        <mxCell id="11" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#FFFFFF;strokeColor=#4A6B8A;strokeWidth=1.5;fontColor=#2C4257;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value="Embedding模型" vertex="1">
+          <mxGeometry height="54" width="215" x="870" y="224" as="geometry" />
+        </mxCell>
+        <mxCell id="12" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#FBF5E6;strokeColor=#E6D6A8;strokeWidth=1.5;fontColor=#7A5E1A;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value=" " vertex="1">
+          <mxGeometry height="110" width="1080" x="40" y="332" as="geometry" />
+        </mxCell>
+        <mxCell id="13" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#C8A24B;strokeColor=#C8A24B;strokeWidth=1.5;fontColor=#FFFFFF;fontSize=13;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center;fontStyle=1" value="Agent 层&amp;nbsp;&lt;div&gt;决策进程&lt;/div&gt;" vertex="1">
+          <mxGeometry height="110" width="110" x="40" y="332" as="geometry" />
+        </mxCell>
+        <mxCell id="14" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#FFFFFF;strokeColor=#C8A24B;strokeWidth=1.5;fontColor=#7A5E1A;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value="AgentGraph 调度&amp;nbsp;&lt;div&gt;agents.csv · 画像注入&lt;/div&gt;" vertex="1">
+          <mxGeometry height="54" width="270" x="200" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="15" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#FFFFFF;strokeColor=#C8A24B;strokeWidth=1.5;fontColor=#7A5E1A;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value="决策循环 + 记忆系统&lt;div&gt;&amp;nbsp;发帖 / 评论 / 点赞 / 转发&lt;/div&gt;" vertex="1">
+          <mxGeometry height="54" width="270" x="510" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="16" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#FFFFFF;strokeColor=#C8A24B;strokeWidth=1.5;fontColor=#7A5E1A;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value="LangChain ChatOpenAI&amp;nbsp;&lt;div&gt;大 / 小模型分层驱动&lt;/div&gt;" vertex="1">
+          <mxGeometry height="54" width="265" x="820" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="17" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#EDEFF2;strokeColor=#C9CBD0;strokeWidth=1.5;fontColor=#2C4257;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value=" " vertex="1">
+          <mxGeometry height="120" width="1080" x="40" y="468" as="geometry" />
+        </mxCell>
+        <mxCell id="18" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#4A6B8A;strokeColor=#4A6B8A;strokeWidth=1.5;fontColor=#FFFFFF;fontSize=13;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center;fontStyle=1" value="数据与&lt;div&gt;配置层&lt;/div&gt;" vertex="1">
+          <mxGeometry height="120" width="110" x="40" y="468" as="geometry" />
+        </mxCell>
+        <mxCell id="19" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#FFFFFF;strokeColor=#4A6B8A;strokeWidth=1.5;fontColor=#2C4257;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value="SQLite + sqlite-vec&amp;nbsp;&lt;div&gt;moss.db · 向量存储&lt;/div&gt;" vertex="1">
+          <mxGeometry height="56" width="270" x="200" y="500" as="geometry" />
+        </mxCell>
+        <mxCell id="20" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#FBF1D8;strokeColor=#C8A24B;strokeWidth=2;fontColor=#7A5E1A;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center;fontStyle=1" value="calibration_profile.yaml 配置中枢" vertex="1">
+          <mxGeometry height="56" width="270" x="510" y="500" as="geometry" />
+        </mxCell>
+        <mxCell id="21" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#FFFFFF;strokeColor=#8C8C82;strokeWidth=1.5;fontColor=#5A5A52;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value="runs/&lt;运行ID&gt;/ moss.db · 日志 · snapshot" vertex="1">
+          <mxGeometry height="56" width="265" x="820" y="500" as="geometry" />
+        </mxCell>
+        <mxCell id="23" edge="1" parent="1" source="4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#1B3A5B;strokeWidth=1.5;endArrow=block;endFill=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;jumpStyle=arc;jumpSize=8" target="8" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="24" edge="1" parent="1" source="9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#B24A38;strokeWidth=1.5;endArrow=block;endFill=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;jumpStyle=arc;jumpSize=8" target="15" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="25" edge="1" parent="1" source="14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4A6B8A;strokeWidth=1.5;endArrow=block;endFill=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;dashed=1;dashPattern=6 4;jumpStyle=arc;jumpSize=8" target="19" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="26" edge="1" parent="1" source="15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#C8A24B;strokeWidth=1.5;endArrow=block;endFill=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;dashed=1;dashPattern=6 4;jumpStyle=arc;jumpSize=8" target="20" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="27" edge="1" parent="1" source="16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8C8C82;strokeWidth=1.5;endArrow=block;endFill=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;dashed=1;dashPattern=6 4;jumpStyle=arc;jumpSize=8" target="21" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

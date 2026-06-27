@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <!-- 背景 -->
+  <g id="bg">
+    <rect width="1280" height="720" fill="#FAF8F4"/>
+    <rect x="0" y="0" width="1280" height="6" fill="#1B3A5B"/>
+  </g>
+
+  <!-- 顶部 kicker 规则线 -->
+  <g id="cover-kicker">
+    <line x1="64" y1="120" x2="1216" y2="120" stroke="#D8D0C2" stroke-width="1"/>
+    <text x="64" y="108" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="16" font-weight="700" fill="#8C8C82" letter-spacing="4">中国传媒大学 · 学位论文选题报告</text>
+    <text x="1216" y="108" text-anchor="end" font-family="Cambria, SimSun, serif" font-size="16" fill="#8C8C82" letter-spacing="2">2026 · 开题答辩</text>
+  </g>
+
+  <!-- 主标题区 -->
+  <g id="cover-title">
+    <rect x="64" y="208" width="64" height="5" fill="#C8A24B"/>
+    <text x="64" y="296" font-family="Cambria, SimSun, serif" font-size="60" font-weight="bold" fill="#1B3A5B">融合推荐机制校准的</text>
+    <text x="64" y="372" font-family="Cambria, SimSun, serif" font-size="60" font-weight="bold" fill="#1B3A5B">社交仿真平台<tspan fill="#C8A24B">设计与实现</tspan></text>
+    <text x="64" y="430" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="22" fill="#5A5A52" letter-spacing="2">从真实传播数据校准推荐参数，注入大小模型协同的在线社交仿真</text>
+  </g>
+
+  <!-- 信息区 + 校徽 -->
+  <g id="cover-info">
+    <line x1="64" y1="486" x2="1216" y2="486" stroke="#D8D0C2" stroke-width="1"/>
+
+    <!-- 校徽 -->
+    <image href="../images/cuc_logo.png" x="64" y="520" width="110" height="140" preserveAspectRatio="xMidYMid meet"/>
+
+    <!-- 信息文本 两栏 -->
+    <text x="220" y="546" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="20" fill="#2B2B2B">
+      <tspan font-weight="700" fill="#1B3A5B">汇报人　</tspan>张艺鹏<tspan dx="28" font-weight="700" fill="#1B3A5B">学　号　</tspan>202520085411016
+    </text>
+    <text x="220" y="586" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="20" fill="#2B2B2B">
+      <tspan font-weight="700" fill="#1B3A5B">责任导师　</tspan>黄浩程<tspan dx="28" font-weight="700" fill="#1B3A5B">研究方向　</tspan>数据智能技术与应用
+    </text>
+    <text x="220" y="626" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="20" fill="#2B2B2B">
+      <tspan font-weight="700" fill="#1B3A5B">培养单位　</tspan>媒体融合与传播国家重点实验室
+    </text>
+    <text x="220" y="660" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="16" fill="#8C8C82">2026 年 6 月</text>
+  </g>
+</svg>

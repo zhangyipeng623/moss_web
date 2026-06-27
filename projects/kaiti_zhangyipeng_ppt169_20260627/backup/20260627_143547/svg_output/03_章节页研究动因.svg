@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <defs>
+    <radialGradient id="bgGlowTL" cx="0%" cy="0%" r="62%">
+      <stop offset="0%" stop-color="#1B3A5B" stop-opacity="0.07"/>
+      <stop offset="55%" stop-color="#1B3A5B" stop-opacity="0.02"/>
+      <stop offset="100%" stop-color="#1B3A5B" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bgGlowBR" cx="100%" cy="100%" r="58%">
+      <stop offset="0%" stop-color="#C8A24B" stop-opacity="0.08"/>
+      <stop offset="50%" stop-color="#C8A24B" stop-opacity="0.02"/>
+      <stop offset="100%" stop-color="#C8A24B" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <g id="bg">
+    <rect width="1280" height="720" fill="#FAF8F4"/>
+    <rect width="1280" height="720" fill="url(#bgGlowTL)"/>
+    <rect width="1280" height="720" fill="url(#bgGlowBR)"/>
+  </g>
+
+  <!-- 页眉 -->
+  <g id="header">
+    <text x="64" y="72" font-family="Cambria, SimSun, serif" font-size="20" font-weight="bold" fill="#1B3A5B">01 <tspan font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="16" fill="#5A5A52">选题背景与研究意义</tspan></text>
+    <image href="../images/cuc_logo.png" x="1176" y="36" width="40" height="52" preserveAspectRatio="xMidYMid meet"/>
+    <line x1="64" y1="96" x2="1216" y2="96" stroke="#1B3A5B" stroke-width="2"/>
+  </g>
+
+  <!-- 标题区 -->
+  <g id="title-block">
+    <text x="64" y="168" font-family="Cambria, SimSun, serif" font-size="34" font-weight="bold" fill="#1B3A5B">为什么要做可校准的社交仿真</text>
+    <rect x="64" y="186" width="56" height="4" fill="#C8A24B"/>
+    <text x="64" y="226" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="17" fill="#5A5A52">真实平台的算法黑箱，使仿真成为从「结果描述」走向「机制解释」的必要路径</text>
+  </g>
+
+  <!-- 左侧三条研究动因 -->
+  <g id="reasons">
+    <!-- 动因一 -->
+    <g id="reason-1">
+      <use data-icon="tabler-outline/share" x="64" y="288" width="30" height="30" fill="#1B3A5B"/>
+      <text x="108" y="300" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="20" font-weight="700" fill="#1B3A5B">公共议题的关键空间</text>
+      <text x="108" y="330" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="16" fill="#2B2B2B">社交媒体已成为公共议题扩散、舆论形成</text>
+      <text x="108" y="354" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="16" fill="#2B2B2B">与平台治理的重要空间。</text>
+    </g>
+    <!-- 动因二 -->
+    <g id="reason-2">
+      <use data-icon="tabler-outline/eye" x="64" y="402" width="30" height="30" fill="#1B3A5B"/>
+      <text x="108" y="414" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="20" font-weight="700" fill="#1B3A5B">真实平台的研究壁垒</text>
+      <text x="108" y="444" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="16" fill="#2B2B2B">算法黑箱、曝光日志难获取、对照实验</text>
+      <text x="108" y="468" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="16" fill="#2B2B2B">受伦理与监管限制。</text>
+    </g>
+    <!-- 动因三 -->
+    <g id="reason-3">
+      <use data-icon="tabler-outline/settings" x="64" y="516" width="30" height="30" fill="#1B3A5B"/>
+      <text x="108" y="528" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="20" font-weight="700" fill="#1B3A5B">仿真的真正价值</text>
+      <text x="108" y="558" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="16" fill="#2B2B2B">不只是复现宏观现象，而是解释用户行为、</text>
+      <text x="108" y="582" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="16" fill="#2B2B2B">网络结构与平台机制如何共同生成传播结果。</text>
+    </g>
+  </g>
+
+  <!-- 右侧推荐曝光示意 -->
+  <g id="diagram">
+    <rect x="720" y="276" width="496" height="332" rx="4" fill="#F1ECE3"/>
+    <text x="744" y="312" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="14" font-weight="700" fill="#C8A24B" letter-spacing="2">关键转向 · 推荐曝光串联</text>
+
+    <!-- 节点一 信息接触 -->
+    <rect x="800" y="344" width="336" height="56" rx="4" fill="#FAF8F4" stroke="#D8D0C2" stroke-width="1"/>
+    <use data-icon="tabler-outline/eye" x="820" y="358" width="28" height="28" fill="#4A6B8A"/>
+    <text x="864" y="378" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="18" font-weight="700" fill="#1B3A5B">信息接触</text>
+    <line x1="968" y1="404" x2="968" y2="424" stroke="#C8A24B" stroke-width="2"/>
+    <path d="M 962 418 L 968 426 L 974 418" fill="none" stroke="#C8A24B" stroke-width="2"/>
+
+    <!-- 节点二 互动行为 -->
+    <rect x="800" y="428" width="336" height="56" rx="4" fill="#FAF8F4" stroke="#D8D0C2" stroke-width="1"/>
+    <use data-icon="tabler-outline/users" x="820" y="442" width="28" height="28" fill="#4A6B8A"/>
+    <text x="864" y="462" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="18" font-weight="700" fill="#1B3A5B">互动行为</text>
+    <line x1="968" y1="488" x2="968" y2="508" stroke="#C8A24B" stroke-width="2"/>
+    <path d="M 962 502 L 968 510 L 974 502" fill="none" stroke="#C8A24B" stroke-width="2"/>
+
+    <!-- 节点三 立场变化 -->
+    <rect x="800" y="512" width="336" height="56" rx="4" fill="#FAF8F4" stroke="#D8D0C2" stroke-width="1"/>
+    <use data-icon="tabler-outline/scale" x="820" y="526" width="28" height="28" fill="#4A6B8A"/>
+    <text x="864" y="546" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="18" font-weight="700" fill="#1B3A5B">立场变化</text>
+  </g>
+
+  <!-- 页脚 -->
+  <g id="footer">
+    <line x1="64" y1="684" x2="1216" y2="684" stroke="#D8D0C2" stroke-width="1"/>
+    <text x="64" y="704" font-family="&quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="12" fill="#8C8C82">融合推荐机制校准的社交仿真平台</text>
+    <text x="1216" y="704" text-anchor="end" font-family="Cambria, SimSun, serif" font-size="12" fill="#8C8C82">03</text>
+  </g>
+</svg>

@@ -31,6 +31,12 @@
       "skillPath": "deep-research/SKILL.md",
       "computedHash": "fcc1cbb49cdd98a68c1edeb90a8dcee48534ec3a1f4f48cf9cfa43adeb78ac88"
     },
+    "drawio": {
+      "source": "bahayonghang/drawio-skills",
+      "sourceType": "github",
+      "skillPath": "skills/drawio/SKILL.md",
+      "computedHash": "70e8634acbd84becc0bb313c3537f990b78fa22a10bde8e37b8bf103e3b94ce1"
+    },
     "paper-search": {
       "source": "ykdojo/paper-search",
       "sourceType": "github",

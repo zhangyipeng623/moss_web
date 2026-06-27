@@ -1,0 +1,100 @@
+meta:
+  theme: tech-blue
+  layout: horizontal
+  canvas: 1344x680
+  routing: orthogonal
+  source: generated
+  title: "图1 MOSS 数据—校准—运行单向贯通总览"
+  font:
+    primary: Microsoft YaHei
+    cjk: Microsoft YaHei
+    formula: Cambria Math
+
+nodes:
+  # ===== 层标题带 =====
+  - id: band_offline
+    label: "离线阶段 · 数据与校准"
+    type: text
+    bounds: { x: 60, y: 60, width: 360, height: 28 }
+    style: { fontColor: "#1B3A5B", fontSize: 16, bold: true, align: left, verticalAlign: middle }
+  - id: band_hub
+    label: "配置中枢"
+    type: text
+    bounds: { x: 540, y: 102, width: 260, height: 24 }
+    style: { fontColor: "#7A5E1A", fontSize: 16, bold: true, align: center, verticalAlign: middle }
+  - id: band_online
+    label: "在线阶段 · 仿真与归档"
+    type: text
+    bounds: { x: 1024, y: 60, width: 360, height: 28 }
+    style: { fontColor: "#2C4257", fontSize: 16, bold: true, align: left, verticalAlign: middle }
+
+  # ===== 离线：原始数据 =====
+  - id: raw
+    label: "原始社交数据\nuser / post 表 · 内容观测 Excel"
+    type: document
+    bounds: { x: 60, y: 120, width: 250, height: 72 }
+    style: { fillColor: "#E7EEF5", strokeColor: "#1B3A5B", fontColor: "#1B3A5B", strokeWidth: 2, fontSize: 13 }
+
+  # ===== 离线：画像生成（双下游分叉源） =====
+  - id: portrait
+    label: "用户画像生成\n五阶段 LLM · 影响力分层 portraits/*.json"
+    type: process
+    bounds: { x: 60, y: 250, width: 250, height: 92 }
+    style: { fillColor: "#E7EEF5", strokeColor: "#1B3A5B", fontColor: "#1B3A5B", strokeWidth: 2, fontSize: 13 }
+
+  # ===== 离线：ABM 校准 =====
+  - id: abm
+    label: "ABM 推荐参数校准\n语义 + 种群合成 · 向量化仿真 EM / Optuna 拟合真实传播"
+    type: process
+    bounds: { x: 60, y: 400, width: 250, height: 92 }
+    style: { fillColor: "#F6EDD6", strokeColor: "#C8A24B", fontColor: "#7A5E1A", strokeWidth: 2, fontSize: 13 }
+
+  # ===== 配置中枢 =====
+  - id: yaml
+    label: "calibration_profile.yaml\n离线→在线唯一配置接口"
+    type: database
+    bounds: { x: 540, y: 130, width: 260, height: 116 }
+    style: { fillColor: "#C8A24B", strokeColor: "#1B3A5B", fontColor: "#FFFFFF", strokeWidth: 2.5, fontSize: 13, bold: true }
+  # 画像→在线的第二条接口：人格模板（agents.csv）
+  - id: persona
+    label: "人格模板"
+    type: document
+    bounds: { x: 540, y: 400, width: 260, height: 80 }
+    style: { fillColor: "#FFFFFF", strokeColor: "#1B3A5B", fontColor: "#1B3A5B", strokeWidth: 1.5, fontSize: 12 }
+
+  # ===== 在线运行层 =====
+  - id: main
+    label: "main.py 双进程启动\nBackend + Agent"
+    type: process
+    bounds: { x: 980, y: 120, width: 280, height: 72 }
+    style: { fillColor: "#E3EAF1", strokeColor: "#4A6B8A", fontColor: "#2C4257", strokeWidth: 2, fontSize: 13 }
+  - id: recsys
+    label: "SocialRecSys.configure()\n注入推荐参数 · Feed 排序"
+    type: process
+    bounds: { x: 980, y: 250, width: 280, height: 72 }
+    style: { fillColor: "#E3EAF1", strokeColor: "#4A6B8A", fontColor: "#2C4257", strokeWidth: 2, fontSize: 13 }
+  - id: agent_run
+    label: "Agent 模拟运行\n人格驱动决策 · 发帖/评论/点赞/转发"
+    type: process
+    bounds: { x: 980, y: 380, width: 280, height: 72 }
+    style: { fillColor: "#E3EAF1", strokeColor: "#4A6B8A", fontColor: "#2C4257", strokeWidth: 2, fontSize: 13 }
+  - id: runs
+    label: "runs/ 运行归档（终点）\nmoss.db · 日志 · 指标评估 · 消融实验"
+    type: document
+    bounds: { x: 980, y: 510, width: 280, height: 72 }
+    style: { fillColor: "#EFEAE0", strokeColor: "#8C8C82", fontColor: "#5A5A52", strokeWidth: 2, fontSize: 13 }
+
+edges:
+  # 离线主链
+  - { from: raw, to: portrait, type: primary, style: { strokeColor: "#1B3A5B", strokeWidth: 2 } }
+  - { from: portrait, to: abm, type: data, label: "种群合成", style: { strokeColor: "#1B3A5B", strokeWidth: 2, dashed: true } }
+  - { from: abm, to: yaml, type: primary, label: "写入校准参数", style: { strokeColor: "#C8A24B", strokeWidth: 2.5 } }
+  # 配置中枢 → 在线推荐
+  - { from: yaml, to: recsys, type: data, label: "参数注入", style: { strokeColor: "#C8A24B", strokeWidth: 2.5, dashed: true } }
+  # 画像第二条下游：画像 → 人格模板 → 在线 Agent（经 agents.csv，与参数注入分两路）
+  - { from: portrait, to: persona, type: data, label: "画像填充", style: { strokeColor: "#1B3A5B", strokeWidth: 2, dashed: true } }
+  - { from: persona, to: agent_run, type: data, label: "人格注入", style: { strokeColor: "#1B3A5B", strokeWidth: 2, dashed: true } }
+  # 在线主链
+  - { from: main, to: recsys, type: primary, style: { strokeColor: "#4A6B8A", strokeWidth: 2 } }
+  - { from: recsys, to: agent_run, type: primary, style: { strokeColor: "#4A6B8A", strokeWidth: 2 } }
+  - { from: agent_run, to: runs, type: primary, label: "结果归档", style: { strokeColor: "#4A6B8A", strokeWidth: 2 } }

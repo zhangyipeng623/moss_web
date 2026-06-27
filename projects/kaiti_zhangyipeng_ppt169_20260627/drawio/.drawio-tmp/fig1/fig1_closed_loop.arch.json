@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "title": "图1 MOSS 数据—校准—运行闭环总览",
+  "type": "module-diagram",
+  "source": "generated",
+  "profile": "default",
+  "theme": "tech-blue",
+  "layout": "horizontal",
+  "counts": {
+    "nodes": 10,
+    "edges": 10,
+    "modules": 3
+  },
+  "nodes": [
+    {
+      "id": "raw",
+      "label": "原始社交数据\nuser / post 表\n内容观测 Excel",
+      "type": "document",
+      "module": "m_offline"
+    },
+    {
+      "id": "portrait_gen",
+      "label": "用户画像生成\n统计特征 + 证据帖\n五阶段 LLM 流水线",
+      "type": "process",
+      "module": "m_offline"
+    },
+    {
+      "id": "portrait_json",
+      "label": "portraits/*.json\ninfluence_tier\nprofile_mode",
+      "type": "document",
+      "module": "m_offline"
+    },
+    {
+      "id": "semantic",
+      "label": "语义处理与种群合成\nKernel PCA 立场轴\nZipf 影响力分布扩展",
+      "type": "process",
+      "module": "m_calib"
+    },
+    {
+      "id": "abm",
+      "label": "向量化 ABM + EM/Optuna\n四维推荐权重\ndecay_lambda",
+      "type": "process",
+      "module": "m_calib"
+    },
+    {
+      "id": "yaml",
+      "label": "calibration_profile.yaml\n单一配置中枢",
+      "type": "database",
+      "module": "m_calib"
+    },
+    {
+      "id": "main",
+      "label": "main.py 双进程启动\nBackend + Agent",
+      "type": "process",
+      "module": "m_online"
+    },
+    {
+      "id": "recsys",
+      "label": "SocialRecSys.configure()\n注入推荐参数\nFeed 排序",
+      "type": "service",
+      "module": "m_online"
+    },
+    {
+      "id": "agent_run",
+      "label": "Agent 模拟运行\n发帖/评论/点赞/转发\n记忆与即时检索",
+      "type": "service",
+      "module": "m_online"
+    },
+    {
+      "id": "runs",
+      "label": "runs/ 运行归档\n指标评估与消融实验",
+      "type": "document",
+      "module": "m_online"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-1",
+      "from": "raw",
+      "to": "portrait_gen",
+      "type": "primary"
+    },
+    {
+      "id": "edge-2",
+      "from": "portrait_gen",
+      "to": "portrait_json",
+      "type": "primary"
+    },
+    {
+      "id": "edge-3",
+      "from": "semantic",
+      "to": "abm",
+      "type": "primary"
+    },
+    {
+      "id": "edge-4",
+      "from": "abm",
+      "to": "yaml",
+      "type": "primary"
+    },
+    {
+      "id": "edge-5",
+      "from": "portrait_json",
+      "to": "semantic",
+      "type": "data",
+      "label": "画像注入"
+    },
+    {
+      "id": "edge-6",
+      "from": "yaml",
+      "to": "recsys",
+      "type": "primary",
+      "label": "参数注入"
+    },
+    {
+      "id": "edge-7",
+      "from": "main",
+      "to": "recsys",
+      "type": "primary"
+    },
+    {
+      "id": "edge-8",
+      "from": "recsys",
+      "to": "agent_run",
+      "type": "primary"
+    },
+    {
+      "id": "edge-9",
+      "from": "agent_run",
+      "to": "runs",
+      "type": "primary"
+    },
+    {
+      "id": "edge-10",
+      "from": "runs",
+      "to": "yaml",
+      "type": "data",
+      "label": "误差分析 / 下一轮校准"
+    }
+  ],
+  "modules": [
+    {
+      "id": "m_offline",
+      "label": "离线数据层",
+      "color": "#1B3A5B"
+    },
+    {
+      "id": "m_calib",
+      "label": "离线校准层",
+      "color": "#C8A24B"
+    },
+    {
+      "id": "m_online",
+      "label": "在线运行层",
+      "color": "#4A6B8A"
+    }
+  ]
+}
