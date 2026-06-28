@@ -5,7 +5,7 @@
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
         <mxCell id="2" parent="1" style="text;html=1;whiteSpace=wrap;overflow=hidden;labelBackgroundColor=none;fillColor=none;strokeColor=none;strokeWidth=0;fontColor=#1B3A5B;fontSize=15;fontFamily=Microsoft YaHei;align=left;verticalAlign=middle;fontStyle=1" value="输入 · 原始数据" vertex="1">
-          <mxGeometry height="28" width="116" x="112" y="70" as="geometry" />
+          <mxGeometry height="28" width="220" x="60" y="70" as="geometry" />
         </mxCell>
         <mxCell id="3" parent="1" style="shape=document;boundedLbl=1;html=1;whiteSpace=wrap;fillColor=#E7EEF5;strokeColor=#1B3A5B;strokeWidth=2;fontColor=#1B3A5B;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value="user 表&amp;nbsp;&lt;div&gt;发帖 / 互动 / 活跃时段 / 粉丝数&lt;/div&gt;" vertex="1">
           <mxGeometry height="64" width="220" x="60" y="110" as="geometry" />
@@ -23,7 +23,7 @@
           <mxGeometry height="60" width="220" x="60" y="444" as="geometry" />
         </mxCell>
         <mxCell id="8" parent="1" style="text;html=1;whiteSpace=wrap;overflow=hidden;labelBackgroundColor=none;fillColor=none;strokeColor=none;strokeWidth=0;fontColor=#1B3A5B;fontSize=15;fontFamily=Microsoft YaHei;align=left;verticalAlign=middle;fontStyle=1" value="五阶段 LLM 流水线" vertex="1">
-          <mxGeometry height="28" width="136" x="412" y="70" as="geometry" />
+          <mxGeometry height="28" width="360" x="360" y="70" as="geometry" />
         </mxCell>
         <mxCell id="9" parent="1" style="rounded=1;arcSize=20;html=1;whiteSpace=wrap;fillColor=#E3EAF1;strokeColor=#4A6B8A;strokeWidth=2;fontColor=#2C4257;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value="A 证据抽取&amp;nbsp;&lt;div&gt;并行分块 · 关键行为提取&lt;/div&gt;" vertex="1">
           <mxGeometry height="60" width="240" x="360" y="110" as="geometry" />
@@ -41,7 +41,7 @@
           <mxGeometry height="60" width="240" x="360" y="446" as="geometry" />
         </mxCell>
         <mxCell id="14" parent="1" style="text;html=1;whiteSpace=wrap;overflow=hidden;labelBackgroundColor=none;fillColor=none;strokeColor=none;strokeWidth=0;fontColor=#7A5E1A;fontSize=15;fontFamily=Microsoft YaHei;align=left;verticalAlign=middle;fontStyle=1" value="输出 · 结构化画像" vertex="1">
-          <mxGeometry height="28" width="126" x="747" y="70" as="geometry" />
+          <mxGeometry height="28" width="240" x="690" y="70" as="geometry" />
         </mxCell>
         <mxCell id="15" parent="1" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=15;html=1;whiteSpace=wrap;fillColor=#C8A24B;strokeColor=#1B3A5B;strokeWidth=2;fontColor=#FFFFFF;fontSize=14;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center;fontStyle=1" value="portraits/*.json" vertex="1">
           <mxGeometry height="72" width="220" x="700" y="130" as="geometry" />

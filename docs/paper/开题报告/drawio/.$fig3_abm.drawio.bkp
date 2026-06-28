@@ -8,7 +8,7 @@
           <mxGeometry height="28" width="104" x="152" y="80" as="geometry" />
         </mxCell>
         <mxCell id="3" parent="1" style="text;html=1;whiteSpace=wrap;overflow=hidden;labelBackgroundColor=none;fillColor=none;strokeColor=none;strokeWidth=0;fontColor=#7A5E1A;fontSize=15;fontFamily=Microsoft YaHei;align=left;verticalAlign=middle;fontStyle=1" value="仿真与约束" vertex="1">
-          <mxGeometry height="28" width="96" x="576" y="80" as="geometry" />
+          <mxGeometry height="28" width="300" x="576" y="80" as="geometry" />
         </mxCell>
         <mxCell id="4" parent="1" style="text;html=1;whiteSpace=wrap;overflow=hidden;labelBackgroundColor=none;fillColor=none;strokeColor=none;strokeWidth=0;fontColor=#2C4257;fontSize=15;fontFamily=Microsoft YaHei;align=left;verticalAlign=middle;fontStyle=1" value="校准与输出" vertex="1">
           <mxGeometry height="28" width="88" x="984" y="80" as="geometry" />

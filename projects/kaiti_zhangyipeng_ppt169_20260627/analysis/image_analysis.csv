@@ -1,6 +1,0 @@
-No,Filename,Width,Height,AspectRatio,PixelAspectRatio,RatioSource,UsageCount,DisplayRatioVariants,AssetKind,SvgRenderable,PptxNativeSupported,SizeKB,Category,ImageArea_SxS,TextArea_SxS
-1,cuc_logo.png,123,157,0.78,0.78,pixel,1,,bitmap,True,True,15.3,Portrait,470x600,670x600
-2,fig1_closed_loop.png,2582,1544,1.67,1.67,pixel,1,,bitmap,True,True,390.4,Wide landscape,812x486,328x600
-3,fig2_portrait.png,2266,1564,1.45,1.45,pixel,1,,bitmap,True,True,358.0,Standard landscape,812x560,328x600
-4,fig3_abm.png,2296,1174,1.96,1.96,pixel,1,,bitmap,True,True,407.5,Wide landscape,812x415,328x600
-5,fig4_online.png,2346,1114,2.11,2.11,pixel,1,,bitmap,True,True,343.8,Ultra-wide,812x386,328x600

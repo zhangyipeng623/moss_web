@@ -1,6 +1,6 @@
 <mxfile host="Electron" agent="drawio-skill-cli">
   <diagram name="Page-1" id="0">
-    <mxGraphModel dx="1262" dy="1098" grid="1" gridSize="8" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1224" pageHeight="728" background="#FFFFFF" math="1" shadow="0">
+    <mxGraphModel dx="631" dy="549" grid="1" gridSize="8" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1224" pageHeight="728" background="#FFFFFF" math="1" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -40,7 +40,7 @@
         <mxCell id="13" parent="1" style="ellipse;shape=cloud;html=1;whiteSpace=wrap;fillColor=#C8A24B;strokeColor=#1B3A5B;strokeWidth=2;fontColor=#FFFFFF;fontSize=13;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center;fontStyle=1" value="LangChain ChatOpenAI&amp;nbsp;&lt;div&gt;大模型 / 小模型分层驱动&lt;/div&gt;" vertex="1">
           <mxGeometry height="72" width="300" x="800" y="472" as="geometry" />
         </mxCell>
-        <mxCell id="14" parent="1" style="shape=document;boundedLbl=1;html=1;whiteSpace=wrap;fillColor=#EFEAE0;strokeColor=#8C8C82;strokeWidth=2;fontColor=#5A5A52;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value="runs/&amp;lt;运行ID&amp;gt;/  归档&amp;nbsp;&lt;div&gt;moss.db · backend.log · agent.log · snapshot.json&lt;/div&gt;" vertex="1">
+        <mxCell id="14" parent="1" style="shape=document;boundedLbl=1;html=1;whiteSpace=wrap;fillColor=#EFEAE0;strokeColor=#8C8C82;strokeWidth=2;fontColor=#5A5A52;fontSize=12;fontFamily=Microsoft YaHei;verticalAlign=middle;align=center" value="runs/&lt;运行ID&gt;/  归档 moss.db · backend.log · agent.log · snapshot.json" vertex="1">
           <mxGeometry height="80" width="380" x="760" y="568" as="geometry" />
         </mxCell>
         <mxCell id="15" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#1B3A5B;strokeWidth=2;endArrow=block;endFill=1;exitX=0;exitY=0.25;exitDx=0;exitDy=0;entryX=1;entryY=0.25;entryDx=0;entryDy=0;jumpStyle=arc;jumpSize=8" value="">

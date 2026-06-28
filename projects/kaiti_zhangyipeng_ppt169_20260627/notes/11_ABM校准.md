@@ -1,1 +1,0 @@
-第二个模块是 ABM 推荐参数校准，这也是本课题的方法核心。推荐的可见概率由四类分数加权得到：w_i 兴趣匹配、w_pop 内容热度、w_time 时间衰减、w_rand 随机探索。校准用的是 EMCalibrationEngine：E 步搜索每条内容的 p_base，M 步在 Dirichlet 约束下联合搜索推荐权重和 decay_lambda。最终输出就是 calibration_profile.yaml，可以供在线的 SocialRecSys.configure 直接注入。
