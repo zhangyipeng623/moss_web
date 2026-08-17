@@ -10,6 +10,9 @@ class UserCreate(BaseModel):
     nickname: str
     bio: Optional[str] = None
     user_info: Optional[Dict[str, Any]] = None
+    # B-5：tier 与 belief_text 全链路写入，供在线打分使用
+    tier: int = 3
+    belief_text: Optional[str] = None
 
 
 class UserResponse(BaseModel):

@@ -8,6 +8,7 @@ from langchain_core.tools import StructuredTool
 from langchain_openai import ChatOpenAI
 from pydantic import create_model
 
+from core.experiment_config import MemoryExperimentConfig
 from moss_agent_client.actions import ACTION_SPECS, ACTION_SPEC_BY_NAME, ActionSpec
 from moss_agent_client.agent_logger import logger
 from moss_agent_client.memory import (
@@ -93,6 +94,7 @@ class MossAgent:
         user_info: Optional[dict[str, Any]] = None,
         user_info_template: Optional[str] = None,
         profile_mode: str = "default",
+        memory_config: Optional[MemoryExperimentConfig] = None,
     ):
         self.platform = platform
         self.username = username
@@ -105,16 +107,19 @@ class MossAgent:
         self.profile_mode = profile_mode
         self.round_id = 0
         self._step_actions: list[ActionTrace] = []
-        self.step_retry_limit = 3
+        memory_config = memory_config or MemoryExperimentConfig()
+        self.step_retry_limit = memory_config.step_retry_limit
 
         self.llm = llm
         self.static_context = self._build_static_context()
         self.memory_manager = MemoryManager(
             username=self.username,
             static_context=self.static_context,
-            short_term_max_rounds=3,
-            short_term_max_posts=3,
-            event_max_size=50,
+            short_term_max_rounds=memory_config.short_term_max_rounds,
+            short_term_max_posts=memory_config.short_term_max_posts,
+            event_max_size=memory_config.event_max_size,
+            event_decay_lambda=memory_config.event_decay_lambda,
+            context_boost_cap=memory_config.context_boost_cap,
         )
         self.tools = self._create_tools()
         self.system_prompt = PromptBuilder.build_system_prompt(self.static_context)
@@ -123,10 +128,39 @@ class MossAgent:
         )
 
     async def start(self):
+        # B-5：tier 与 belief_text 全链路写入 DB，供在线打分使用
+        tier = self._resolve_tier()
+        belief_text = self._resolve_belief_text()
         self.user_data = await self.platform.register_or_login(
-            self.username, self.nickname, self.bio, self.user_info
+            username=self.username,
+            nickname=self.nickname,
+            bio=self.bio,
+            user_info=self.user_info,
+            tier=tier,
+            belief_text=belief_text,
         )
         logger.info(f"Agent {self.nickname} started. User ID: {self.user_data.id}")
+
+    def _resolve_tier(self) -> int:
+        """解析层级：simple 用 user_info.tier；default/custom 优先画像 influence_tier。"""
+        raw = self.user_info.get("tier")
+        if raw is None:
+            raw = self.user_info.get("influence_tier")
+        try:
+            tier = int(raw) if raw is not None else 3
+        except (TypeError, ValueError):
+            tier = 3
+        return max(1, min(5, tier))
+
+    def _resolve_belief_text(self) -> str:
+        """解析立场/兴趣文本：default/custom 用 identity_summary+interest_summary，
+        simple 用 bio；缺失时回退 bio。与 ABM 的画像 embedding 口径一致（B-5.5）。"""
+        if self.profile_mode != "simple":
+            identity = str(self.user_info.get("identity_summary") or "").strip()
+            interest = str(self.user_info.get("interest_summary") or "").strip()
+            if identity or interest:
+                return f"{identity} {interest}".strip()
+        return (self.bio or "").strip()
 
     def _build_static_context(self) -> StaticContext:
         if self.profile_mode == "simple":
@@ -473,7 +507,10 @@ class MossAgent:
                 )
 
             self._reset_step_actions()
-            relevant_events = self.memory_manager.select_relevant_events(snapshot)
+            relevant_events = self.memory_manager.select_relevant_events(
+                snapshot=snapshot,
+                current_round=self.round_id,
+            )
             full_input = PromptBuilder.build_runtime_context(
                 context=self.memory_manager.context,
                 snapshot=snapshot,
@@ -512,6 +549,7 @@ class MossAgent:
                 self.memory_manager.apply_decision_result(
                     snapshot=snapshot,
                     decision_result=decision_result,
+                    round_id=self.round_id,
                 )
 
                 if attempt > 1:

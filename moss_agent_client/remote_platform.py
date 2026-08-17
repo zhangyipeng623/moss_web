@@ -26,7 +26,10 @@ class RemotePlatform:
         nickname: str,
         bio: str,
         user_info: Optional[Dict[str, Any]] = None,
+        tier: int = 3,
+        belief_text: Optional[str] = None,
     ) -> UserResponse:
+        # B-5：tier / belief_text 随登录请求发送，写入 DB 供在线打分使用
         resp = await self.client.post(
             "/api/v1/login",
             json={
@@ -34,6 +37,8 @@ class RemotePlatform:
                 "nickname": nickname,
                 "bio": bio,
                 "user_info": user_info or {},
+                "tier": tier,
+                "belief_text": belief_text or "",
             },
         )
         resp.raise_for_status()

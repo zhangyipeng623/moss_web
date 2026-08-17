@@ -56,16 +56,22 @@ async def update_step():
 
 @router.post("/api/v1/login", response_model=UserResponse)
 async def login(user_in: UserCreate):
+    tier = max(1, min(5, int(user_in.tier)))
     user = await users.get_user_by_username(user_in.username)
     if user:
-        return user
+        # B-4：同库复用时刷新 tier/belief_text，不残留旧值
+        return await users.update_user_tier_belief(
+            user_in.username, tier, user_in.belief_text
+        )
 
-    # Register
+    # Register（B-5：tier / belief_text 透传给 DAO）
     new_user = await users.create_user(
         user_in.username,
         user_in.nickname,
         user_in.bio,
         user_in.user_info,
+        tier=tier,
+        belief_text=user_in.belief_text,
     )
     return new_user
 

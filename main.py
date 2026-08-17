@@ -85,12 +85,31 @@ def apply_random_seed(seed: int | None) -> None:
     np.random.seed(seed)
 
 
-def start_backend(run_context: RunContext, experiment_data: dict):
-    """启动后端服务"""
+def start_backend(
+    run_context: RunContext,
+    experiment_data: dict,
+    recommender_data: dict,
+    embedding_data: dict,
+):
+    """启动后端服务。
+
+    A-1：校准权重与嵌入配置随子进程参数传入。multiprocessing spawn 会重新
+    import 模块，主进程里 configure() 设置的类属性不会跨进程传递，
+    因此必须在子进程内、create_app() 之前重新注入。
+    """
     experiment = ExperimentConfig.model_validate(experiment_data)
     export_run_context(run_context)
     configure_logging(run_context.backend_log_path, "main", console_enabled=False)
     apply_random_seed(experiment.runtime.random_seed)
+
+    # 在 create_app() 之前注入校准参数（关键：必须在子进程内 configure）
+    from core.calibration_profile import EmbeddingConfig, RecommenderConfig
+    from backend.services.social_recsys import SocialRecSys
+
+    SocialRecSys.configure(
+        RecommenderConfig.model_validate(recommender_data),
+        EmbeddingConfig.model_validate(embedding_data),
+    )
 
     from backend import create_app
 
@@ -120,12 +139,22 @@ def start_agent(run_context: RunContext, experiment_data: dict, config_path: str
 
     platform = RemotePlatform(get_backend_base_url())
 
-    llm = ChatOpenAI(
-        model=experiment.llm.model,
-        api_key=os.environ.get(experiment.llm.api_key_env),
-        base_url=os.environ.get(experiment.llm.base_url_env),
-        timeout=experiment.llm.timeout,
-    )
+    # Part C 可复现性：temperature=0 固定采样；端点支持时附加固定 seed
+    llm_kwargs: dict = {
+        "model": experiment.llm.model,
+        "api_key": os.environ.get(experiment.llm.api_key_env),
+        "base_url": os.environ.get(experiment.llm.base_url_env),
+        "timeout": experiment.llm.timeout,
+        "temperature": 0.0,
+    }
+    if experiment.runtime.random_seed is not None:
+        llm_kwargs["seed"] = experiment.runtime.random_seed
+    try:
+        llm = ChatOpenAI(**llm_kwargs)
+    except Exception as exc:  # 端点不支持 seed 时降级为只固定 temperature
+        logger.warning(f"ChatOpenAI 不支持 seed 参数，已降级（temperature=0 仍生效）：{exc}")
+        llm_kwargs.pop("seed", None)
+        llm = ChatOpenAI(**llm_kwargs)
 
     system_time_config: SystemTimeConfig = SystemTimeConfig(
         mode=experiment.system_time.mode,
@@ -138,6 +167,7 @@ def start_agent(run_context: RunContext, experiment_data: dict, config_path: str
             global_event=experiment.global_event,
             llm=llm,
             system_time_config=system_time_config,
+            memory_config=experiment.memory,
         )
         agent_payloads = await resolve_agent_payloads(
             experiment=experiment,
@@ -195,7 +225,12 @@ def main():
 
     backend_process = multiprocessing.Process(
         target=start_backend,
-        args=(run_context, experiment.model_dump()),
+        args=(
+            run_context,
+            experiment.model_dump(),
+            calibration.recommender.model_dump(),
+            calibration.embedding.model_dump(),
+        ),
         name="Backend",
     )
     agent_process = multiprocessing.Process(

@@ -6,6 +6,15 @@ from typing import List, Dict, Any
 
 import numpy as np
 from backend.dao.database import get_db_connection, format_stats
+from core.scoring import (
+    TIER_WEIGHT_DEFAULT,
+    cosine_from_vec_distance,
+    interest_score,
+    min_max_normalize,
+    popularity_score,
+    time_decay_score,
+    weighted_score,
+)
 from sentence_transformers import SentenceTransformer
 from backend.services.logger_service import logger
 from backend.services.time_service import time_service
@@ -18,12 +27,17 @@ class SocialRecSys:
     W_CHRONO: float = 0.3
     W_RAND: float = 0.2
     DECAY_LAMBDA: float = 0.5
-    TIER_WEIGHT: Dict[int, float] = {1: 0.4, 2: 0.7, 3: 1.0, 4: 1.5, 5: 2.0}
-    _embedding_model_name: str = "all-MiniLM-L6-v2"
+    TIER_WEIGHT: Dict[int, float] = dict(TIER_WEIGHT_DEFAULT)
+    _embedding_model_name: str = "BAAI/bge-m3"
+    _normalize_embeddings: bool = True
 
     @classmethod
     def configure(cls, recommender_config, embedding_config) -> None:
-        """从 CalibrationProfile 注入推荐参数。"""
+        """从 CalibrationProfile 注入推荐参数。
+
+        必须在 Backend 子进程内、create_app() 之前调用（A-1）：
+        spawn 模式下主进程的类属性不会跨进程传递。
+        """
         cls.W_BELIEF = recommender_config.weights.w_interest
         cls.W_POP = recommender_config.weights.w_popularity
         cls.W_CHRONO = recommender_config.weights.w_time
@@ -31,6 +45,7 @@ class SocialRecSys:
         cls.DECAY_LAMBDA = recommender_config.decay_lambda
         cls.TIER_WEIGHT = dict(recommender_config.tier_weight)
         cls._embedding_model_name = embedding_config.model_name
+        cls._normalize_embeddings = bool(embedding_config.normalize_embeddings)
 
     def __init__(self):
         # Lazy load model
@@ -40,19 +55,25 @@ class SocialRecSys:
     def model(self):
         if self._model is None:
             logger.info("Loading SentenceTransformer model...")
-            self._model = SentenceTransformer("all-MiniLM-L6-v2")
+            # A-2：使用 configure() 注入的模型名，与离线 ABM 保持同一嵌入空间
+            self._model = SentenceTransformer(SocialRecSys._embedding_model_name)
             logger.info("Model loaded.")
         return self._model
+
+    def _encode(self, text: str):
+        """编码文本（与 ABM 侧一致地归一化嵌入，保证余弦度量可比）。"""
+        return self.model.encode(
+            text,
+            show_progress_bar=False,
+            normalize_embeddings=SocialRecSys._normalize_embeddings,
+        )
 
     async def add_post_vector(self, post_id: int, content: str):
         if not content:
             return
 
         loop = asyncio.get_running_loop()
-        # Use a lambda or partial to pass show_progress_bar
-        embedding = await loop.run_in_executor(
-            None, lambda: self.model.encode(content, show_progress_bar=False)
-        )
+        embedding = await loop.run_in_executor(None, lambda: self._encode(content))
         # Convert to list for JSON serialization
         embedding_list = embedding.tolist()
         embedding_json = json.dumps(embedding_list)
@@ -72,18 +93,27 @@ class SocialRecSys:
         self, user_id: int, limit: int = 5
     ) -> List[Dict[str, Any]]:
         async with get_db_connection() as db:
-            # 1. Get user bio for belief similarity
+            # 1. 取用户立场/兴趣文本：优先 belief_text（B-5），回退 bio
             async with db.execute(
-                "SELECT bio FROM users WHERE id = ?", (user_id,)
+                "SELECT COALESCE(NULLIF(belief_text,''), NULLIF(bio,'')) AS belief_text"
+                " FROM users WHERE id = ?",
+                (user_id,),
             ) as cursor:
                 user_row = await cursor.fetchone()
-                user_bio = user_row["bio"] if user_row else ""
+                user_belief = user_row["belief_text"] if user_row else ""
+
+            # 在线总人口 N：注册用户数（B-1 热度公式分母，用注册用户数近似）
+            async with db.execute(
+                "SELECT COUNT(*) FROM users WHERE type != 'GOD'"
+            ) as cursor:
+                count_row = await cursor.fetchone()
+                population_n = int(count_row[0]) if count_row and count_row[0] else 1
 
             posts = []
             distances = {}  # Map post_id -> distance
 
             # 2. Candidate Generation
-            if user_bio:
+            if user_belief:
                 # Check if there are any vectors in the vec table to avoid crash
                 async with db.execute("SELECT count(*) FROM posts_vec") as cursor:
                     row = await cursor.fetchone()
@@ -94,8 +124,7 @@ class SocialRecSys:
                     loop = asyncio.get_running_loop()
                     # Use a lambda to pass show_progress_bar
                     user_embedding = await loop.run_in_executor(
-                        None,
-                        lambda: self.model.encode(user_bio, show_progress_bar=False),
+                        None, lambda: self._encode(user_belief)
                     )
                     user_embedding_json = json.dumps(user_embedding.tolist())
 
@@ -172,13 +201,15 @@ class SocialRecSys:
 
                 delta = current_time - post_time
                 delta_hours = max(0, delta.total_seconds() / 3600.0)
-                s_time = np.exp(-SocialRecSys.DECAY_LAMBDA * delta_hours)
+                # B-2：时间衰减单位统一为小时，与 ABM 同一公式
+                s_time = time_decay_score(delta_hours, SocialRecSys.DECAY_LAMBDA)
 
-                # S_similarity
+                # S_similarity（B-3：sqlite-vec cosine 距离还原为余弦相似度）
                 s_similarity = 0.0
-                if user_bio and post["id"] in distances:
+                if user_belief and post["id"] in distances:
                     dist = distances[post["id"]]
-                    s_similarity = 1.0 / (1.0 + dist)
+                    s_similarity = cosine_from_vec_distance(dist)
+                    s_similarity = interest_score(s_similarity, stance_affinity=0.0)
 
                 # S_popularity (with tier weight)
                 stats = format_stats(post["stats"])
@@ -194,12 +225,13 @@ class SocialRecSys:
                 weighted_interactions = (
                     (likes * 1) + (replies * 2) + (retweets * 3) + (quotes * 3)
                 )
-                s_popularity = np.log1p(weighted_interactions) / 10.0
-                s_popularity = min(s_popularity, 1.0)
-
                 author_tier = post.get("author_tier", 3)
-                s_popularity_weighted = s_popularity * SocialRecSys.TIER_WEIGHT.get(
-                    author_tier, 1.0
+                # B-1：热度统一为 ABM 公式 log1p(传播/互动人数)/log1p(N) × TIER_WEIGHT
+                s_popularity_weighted = popularity_score(
+                    weighted_interactions,
+                    population_n,
+                    tier=author_tier,
+                    tier_weight=SocialRecSys.TIER_WEIGHT,
                 )
 
                 # S_random
@@ -213,27 +245,24 @@ class SocialRecSys:
                 post["stats"] = stats
                 scored_posts.append(post)
 
-            # Min-Max normalize each dimension across the batch
-            def _norm(vals):
-                v_min, v_max = min(vals), max(vals)
-                if v_max - v_min < 1e-8:
-                    return [0.5] * len(vals)
-                return [(v - v_min) / (v_max - v_min) for v in vals]
+            # Min-Max normalize each dimension across the batch（core.scoring 共享）
+            ni = min_max_normalize(raw_interest).tolist()
+            np_vals = min_max_normalize(raw_pop).tolist()
+            nt = min_max_normalize(raw_time_vals).tolist()
+            nr = min_max_normalize(raw_rand).tolist()
 
-            ni = _norm(raw_interest)
-            np_vals = _norm(raw_pop)
-            nt = _norm(raw_time_vals)
-            nr = _norm(raw_rand)
-
-            # Total Score using class-level weights
+            # Total Score using class-level weights（core.scoring 共享加权）
             for i, post in enumerate(scored_posts):
-                score = (
-                    SocialRecSys.W_BELIEF * ni[i]
-                    + SocialRecSys.W_POP * np_vals[i]
-                    + SocialRecSys.W_CHRONO * nt[i]
-                    + SocialRecSys.W_RAND * nr[i]
+                post["score"] = weighted_score(
+                    ni[i],
+                    np_vals[i],
+                    nt[i],
+                    nr[i],
+                    SocialRecSys.W_BELIEF,
+                    SocialRecSys.W_POP,
+                    SocialRecSys.W_CHRONO,
+                    SocialRecSys.W_RAND,
                 )
-                post["score"] = score
 
             # 4. Sort and return
             scored_posts.sort(key=lambda x: x["score"], reverse=True)

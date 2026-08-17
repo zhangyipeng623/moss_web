@@ -1,0 +1,6 @@
+# uv 项目级配置：使用清华大学 PyPI 镜像源加速依赖下载
+# 该文件会被 git 跟踪；若不想提交，可加入 .gitignore
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+
+# 缓存目录放到项目内，避免 ~/.cache/uv 权限问题
+cache-dir = ".uv-cache"

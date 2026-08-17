@@ -1,3 +1,5 @@
+import math
+
 from moss_agent_client.agent_logger import logger
 from moss_agent_client.memory import (
     ActionTrace,
@@ -15,6 +17,11 @@ from moss_agent_client.prompt_builder import PromptBuilder
 
 
 class MemoryManager:
+    # 时间衰减系数：半衰期 ~10 轮（ln(2)/0.07 ≈ 9.9）
+    DEFAULT_EVENT_DECAY_LAMBDA = 0.07
+    # 上下文联想加成上限：规则匹配锦上添花，不喧宾夺主
+    DEFAULT_CONTEXT_BOOST_CAP = 0.3
+
     def __init__(
         self,
         username: str,
@@ -22,12 +29,16 @@ class MemoryManager:
         short_term_max_rounds: int = 3,
         short_term_max_posts: int = 3,
         event_max_size: int = 50,
+        event_decay_lambda: float = DEFAULT_EVENT_DECAY_LAMBDA,
+        context_boost_cap: float = DEFAULT_CONTEXT_BOOST_CAP,
     ):
         self.username = username
         self.static_context = static_context
         self.short_term_max_rounds = short_term_max_rounds
         self.short_term_max_posts = short_term_max_posts
         self.event_max_size = event_max_size
+        self.event_decay_lambda = float(event_decay_lambda)
+        self.context_boost_cap = float(context_boost_cap)
         self.context = AgentMemoryContext(
             static=static_context,
             short_term=ShortTermMemory(max_rounds=short_term_max_rounds),
@@ -38,8 +49,14 @@ class MemoryManager:
     def select_relevant_events(
         self,
         snapshot: EnvironmentSnapshot,
+        current_round: int,
         top_k: int = 5,
     ) -> list[EventMemoryRecord]:
+        """检索评分（乘法模型 + 时间衰减）。
+
+        新公式：score = importance × exp(-λ × rounds_ago) × (1 + min(boost, cap))。
+        乘法保证低重要性事件永远无法反超高重要性事件（见记忆系统优化方案）。
+        """
         if not self.context.event_memory.records:
             return []
 
@@ -53,20 +70,31 @@ class MemoryManager:
 
         scored_records = []
         for record in self.context.event_memory.records:
+            # 1. 主信号：Agent 当初自己评的重要性
             score = record.importance
+
+            # 2. 时间衰减：Ebbinghaus 遗忘曲线，半衰期 ~10 轮
+            rounds_ago = max(0, int(current_round) - int(record.round_id))
+            recency = math.exp(-self.event_decay_lambda * rounds_ago)
+            score *= recency
+
+            # 3. 上下文联想加成（上限 context_boost_cap，锦上添花不喧宾夺主）
+            context_boost = 0.0
             if (
                 record.source_post_id is not None
                 and record.source_post_id in current_post_ids
             ):
-                score += 1.0
+                context_boost += 0.05  # 引用/转发提醒
             if any(user in current_authors for user in record.related_users):
-                score += 0.7
-            if record.topic and record.topic in current_text:
-                score += 0.5
+                context_boost += 0.12  # 看到相关人物
             if record.topic and record.topic in focus_topics:
-                score += 0.3
+                context_boost += 0.10  # 匹配当前关注
+            if record.topic and record.topic in current_text:
+                context_boost += 0.03  # Feed 文本中出现话题词
             if attention_target and attention_target in " ".join(record.related_users):
-                score += 0.2
+                context_boost += 0.05  # 匹配重点关注对象
+
+            score *= 1.0 + min(context_boost, self.context_boost_cap)
             scored_records.append((score, record))
 
         scored_records.sort(key=lambda item: item[0], reverse=True)
@@ -89,6 +117,7 @@ class MemoryManager:
         self.apply_decision_result(
             snapshot=snapshot,
             decision_result=decision_result,
+            round_id=round_id,
         )
 
     def record_step(
@@ -109,6 +138,7 @@ class MemoryManager:
         self,
         snapshot: EnvironmentSnapshot,
         decision_result: DecisionResultPayload,
+        round_id: int = 0,
     ) -> None:
         if not decision_result.is_structured:
             logger.warning(
@@ -136,6 +166,7 @@ class MemoryManager:
             ],
             source_post_id=decision_result.event_memory.source_post_id,
             impact=decision_result.event_memory.impact.strip(),
+            round_id=round_id,
         )
         self.context.event_memory.add(record)
         logger.info(

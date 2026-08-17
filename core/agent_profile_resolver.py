@@ -47,6 +47,8 @@ async def resolve_agent_payloads(
                 "username": agent.username,
                 "name": agent.name,
                 "bio": agent.bio,
+                # A-3：透传 profile_mode，simple 用户走 SIMPLE_USER_TEMPLATE 分支
+                "profile_mode": agent.profile_mode,
                 "user_info": user_info or {},
                 "user_info_template": user_info_template,
             }

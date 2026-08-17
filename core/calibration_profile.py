@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from core.experiment_config import (
     ExperimentConfig,
     LLMConfig,
+    MemoryExperimentConfig,
     PortraitConfig,
     RuntimeExperimentConfig,
     SystemTimeExperimentConfig,
@@ -38,9 +39,15 @@ class ExperimentYamlConfig(BaseModel):
     agents_csv: str = "configs/experiments/default_agents.csv"
     portrait: PortraitConfig = Field(default_factory=PortraitConfig)
     system_time: SystemTimeExperimentConfig = Field(
-        default_factory=lambda: SystemTimeExperimentConfig(start_time="2026-05-17T12:00:00")
+        # D-1 时间基准：每步 1 小时（time_scale=3600 秒/步）
+        default_factory=lambda: SystemTimeExperimentConfig(
+            start_time="2026-05-17T12:00:00", time_scale=3600
+        )
     )
-    runtime: RuntimeExperimentConfig = Field(default_factory=RuntimeExperimentConfig)
+    runtime: RuntimeExperimentConfig = Field(
+        # D-1 时间基准：24 步 × 1 小时 = 总跨度 24 小时
+        default_factory=lambda: RuntimeExperimentConfig(rounds=24)
+    )
 
 
 class RecommenderWeights(BaseModel):
@@ -56,7 +63,8 @@ class RecommenderConfig(BaseModel):
     weights: RecommenderWeights = Field(default_factory=RecommenderWeights)
     decay_lambda: float = Field(default=0.5, gt=0.0)
     tier_weight: Dict[int, float] = Field(
-        default_factory=lambda: {1: 0.4, 2: 0.7, 3: 1.0, 4: 1.5, 5: 2.0}
+        # A-2：与 core.scoring.TIER_WEIGHT_DEFAULT 一致（除以 max 归一化到 (0,1]）
+        default_factory=lambda: {1: 0.2, 2: 0.35, 3: 0.5, 4: 0.75, 5: 1.0}
     )
     calibrated_p_base: Dict[str, Any] = Field(default_factory=dict)
     fit_diagnostics: Dict[str, Any] = Field(default_factory=dict)
@@ -82,12 +90,15 @@ class SimulationDefaults(BaseModel):
     feed: Dict[str, int] = Field(
         default_factory=lambda: {"candidate_limit": 100, "feed_limit": 5}
     )
-    memory: Dict[str, int] = Field(
+    memory: Dict[str, Any] = Field(
         default_factory=lambda: {
             "short_term_max_rounds": 3,
             "short_term_max_posts": 3,
             "event_max_size": 50,
             "step_retry_limit": 3,
+            # 记忆检索评分（docs/plan/记忆系统优化方案.md）：
+            "event_decay_lambda": 0.07,  # 半衰期 ~10 轮
+            "context_boost_cap": 0.3,   # 上下文联想加成上限
         }
     )
 
@@ -115,4 +126,5 @@ class CalibrationProfile(BaseModel):
             runtime=exp.runtime,
             portrait=exp.portrait,
             agents_csv=exp.agents_csv,
+            memory=MemoryExperimentConfig(**self.simulation.memory),
         )

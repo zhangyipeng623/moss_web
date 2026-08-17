@@ -13,21 +13,30 @@ import pandas as pd
 from joblib import Parallel, delayed
 from sklearn.decomposition import KernelPCA
 
+from core.scoring import (
+    TIER_WEIGHT_DEFAULT,
+    min_max_normalize,
+    normalized_weight_vector,
+    popularity_base,
+    time_decay_score,
+    weighted_score,
+)
+
 logging.getLogger("optuna").setLevel(logging.ERROR)
 
 logger = logging.getLogger(__name__)
 
-# Tier 影响力预设权重（Rogers 5 级，不参与校准）
-TIER_WEIGHT: Dict[int, float] = {1: 0.4, 2: 0.7, 3: 1.0, 4: 1.5, 5: 2.0}
+# Tier 影响力预设权重（Rogers 5 级，不参与校准；与在线 SocialRecSys 共用同一张表）
+TIER_WEIGHT: Dict[int, float] = TIER_WEIGHT_DEFAULT
+
+# 轨迹级损失（P1-A）：DTW 距离与 Pearson 相关的混合权重
+DTW_LOSS_WEIGHT = 0.5
+PEARSON_LOSS_WEIGHT = 0.5
 
 
 def min_max_norm(values: np.ndarray, eps: float = 1e-8) -> np.ndarray:
-    """Per-Batch Min-Max 归一化到 [0, 1]。当 max==min 时返回 0.5。"""
-    v_min = values.min()
-    v_max = values.max()
-    if v_max - v_min < eps:
-        return np.full_like(values, 0.5)
-    return (values - v_min) / (v_max - v_min + eps)
+    """Per-Batch Min-Max 归一化（core.scoring.min_max_normalize 别名，向后兼容）。"""
+    return min_max_normalize(values, eps=eps)
 
 
 # ============================================================
@@ -85,6 +94,7 @@ class SemanticOutput:
     vectors: np.ndarray
     raw_topics: List[Dict[str, float]]
     influences: np.ndarray
+    tiers: np.ndarray
 
 
 class SemanticLoader:
@@ -98,6 +108,7 @@ class SemanticLoader:
         texts: List[str] = []
         user_topics: List[Dict[str, float]] = []
         influences: List[float] = []
+        tiers: List[int] = []
 
         logger.info("[Loader] 处理 %d 个用户画像...", len(user_json_list))
         for u in user_json_list:
@@ -122,11 +133,19 @@ class SemanticLoader:
             except (TypeError, ValueError):
                 influences.append(1.0)
 
+            # 画像层级（Rogers 1-5），缺失时按 L4 兜底
+            try:
+                tier = int(u.get("influence_tier", 4))
+            except (TypeError, ValueError):
+                tier = 4
+            tiers.append(max(1, min(5, tier)))
+
         vectors = self.embed.embed_documents(texts)
         return SemanticOutput(
             vectors=np.asarray(vectors),
             raw_topics=user_topics,
             influences=np.asarray(influences, dtype=float),
+            tiers=np.asarray(tiers, dtype=int),
         )
 
 
@@ -217,6 +236,7 @@ class Population:
     Inf: np.ndarray        # 影响力数组 (N,)
     log_saturation_threshold: float
     source_indices: np.ndarray  # 映射到种子用户的索引
+    tiers: np.ndarray      # Rogers 层级数组 (N,)，随种群扩增保存
 
 
 class PopulationSynthesizer:
@@ -229,22 +249,28 @@ class PopulationSynthesizer:
         self,
         seed_S: np.ndarray,
         seed_Inf: np.ndarray,
+        seed_tiers: Optional[np.ndarray] = None,
         seed: int = 42,
     ) -> Population:
+        # 使用局部 RNG，避免全局 np.random.seed 污染后续调用（P0 附带 / P2-E）
+        rng = np.random.default_rng(seed)
         current_n = len(seed_S)
         target_size = self.target_size
         if target_size is None:
             target_size = max(int(current_n / 0.16), current_n)
+        if seed_tiers is None:
+            seed_tiers = np.full(current_n, 4, dtype=int)
+        seed_tiers = np.asarray(seed_tiers, dtype=int)
+        if len(seed_tiers) != current_n:
+            raise ValueError("seed_tiers 长度必须与 seed_S 一致")
         if current_n == 0:
             return Population(
                 S=np.zeros(target_size),
                 Inf=np.zeros(target_size),
                 log_saturation_threshold=1.0,
                 source_indices=np.zeros(target_size, dtype=int),
+                tiers=np.zeros(target_size, dtype=int),
             )
-
-        if seed is not None:
-            np.random.seed(seed)
 
         # 精英保留 (top 5%)
         n_elite = max(1, int(current_n * 0.05))
@@ -254,19 +280,21 @@ class PopulationSynthesizer:
 
         final_S: List[float] = list(real_elite_S)
         source_indices: List[int] = list(elite_idx)
+        final_tiers: List[int] = list(seed_tiers[elite_idx])
         crowd_idx = [i for i in range(current_n) if i not in elite_idx]
 
         while len(final_S) < target_size:
-            src = int(np.random.choice(crowd_idx))
-            s_noise = float(np.random.normal(0, 0.1))
+            src = int(rng.choice(crowd_idx))
+            s_noise = float(rng.normal(0, 0.1))
             final_S.append(float(np.clip(float(seed_S[src]) + s_noise, -1.0, 1.0)))
             source_indices.append(src)
+            final_tiers.append(int(seed_tiers[src]))
 
         # 合成影响力 (Zipf 分布)
         n_crowd = target_size - len(real_elite_Inf)
         final_Inf: np.ndarray
         if n_crowd > 0:
-            zipf_crowd = np.random.zipf(1.5, n_crowd).astype(float)
+            zipf_crowd = rng.zipf(1.5, n_crowd).astype(float)
             cap_val = float(np.percentile(zipf_crowd, 99.5))
             if cap_val == 0:
                 cap_val = float(zipf_crowd.max())
@@ -284,9 +312,10 @@ class PopulationSynthesizer:
         sort_idx = np.argsort(final_Inf)[::-1]
         final_Inf = final_Inf[sort_idx]
 
-        # 同时重排 S 和 source_indices
+        # 同时重排 S、source_indices 和 tiers
         final_S_arr = np.array(final_S)[sort_idx]
         source_arr = np.array(source_indices, dtype=int)[sort_idx]
+        tiers_arr = np.array(final_tiers, dtype=int)[sort_idx]
 
         raw_threshold = float(real_elite_Inf.min())
         log_saturation_threshold = float(np.log1p(raw_threshold))
@@ -301,16 +330,19 @@ class PopulationSynthesizer:
             Inf=final_Inf.astype(float),
             log_saturation_threshold=log_saturation_threshold,
             source_indices=source_arr,
+            tiers=tiers_arr,
         )
 
     def expand_interest_for_population(
         self,
         seed_I: np.ndarray,
         source_indices: np.ndarray,
+        seed: int = 42,
     ) -> np.ndarray:
         """根据 source_indices 将种子兴趣扩展到全量种群。"""
         pop_I = seed_I[source_indices].copy()
-        noise = np.random.normal(0, 0.05, size=len(pop_I))
+        rng = np.random.default_rng(seed)
+        noise = rng.normal(0, 0.05, size=len(pop_I))
         return np.clip(pop_I + noise, 0.0, 1.0)
 
 
@@ -433,7 +465,11 @@ class StoryManager:
 # 4. 向量化 ABM 引擎
 # ============================================================
 class VectorizedABMEngine:
-    """向量化仿真引擎，支持 Soft Backfire 信念更新。"""
+    """向量化仿真引擎，支持 Soft Backfire 信念更新。
+
+    四维打分（interest/popularity/time/random）与在线 SocialRecSys 共用
+    core.scoring 的公式（见 docs/plan/在线仿真与参数一致性方案.md Part B）。
+    """
 
     def __init__(
         self,
@@ -444,6 +480,10 @@ class VectorizedABMEngine:
         backfire_mu: float = 0.4,
         backfire_k: float = 10.0,
         learning_rate: float = 0.1,
+        tier_labels: Optional[np.ndarray] = None,
+        p_online_map: Optional[Dict[int, float]] = None,
+        hours_per_step: float = 1.0,
+        seed: Optional[int] = None,
     ):
         self.N = len(S)
         self.init_S = S.copy()
@@ -451,9 +491,19 @@ class VectorizedABMEngine:
         self.Inf = Inf
         self.log_saturation_threshold = max(log_saturation_threshold, 1e-9)
         self.p_online = p_online
+        self.p_online_map = p_online_map
         self.backfire_mu = backfire_mu
         self.backfire_k = backfire_k
         self.learning_rate = learning_rate
+        # 种子 tier 随 PopulationSynthesizer 扩增保存，传入引擎参与打分（P0-3）
+        if tier_labels is not None:
+            self.tier_labels = np.asarray(tier_labels, dtype=int).copy()
+        else:
+            self.tier_labels = np.full(self.N, 4, dtype=int)
+        # 一个仿真步对应的小时数：dt_hours = 步数 × hours_per_step（B-2 时间单位统一）
+        self.hours_per_step = hours_per_step
+        # 引擎局部 RNG：可复现且不污染全局 np.random（P0 附带 / P2-E）
+        self._rng = np.random.default_rng(seed)
         self.reset()
 
     def reset(self) -> None:
@@ -466,11 +516,15 @@ class VectorizedABMEngine:
         self.time[seeds] = 0.0
 
     def _update_beliefs(
-        self, target_indices: np.ndarray, source_indices: np.ndarray
+        self,
+        target_indices: np.ndarray,
+        source_indices: np.ndarray,
+        rng: Optional[np.random.Generator] = None,
     ) -> None:
         """Soft Backfire 信念更新。"""
         if len(target_indices) == 0:
             return
+        local_rng = rng if rng is not None else self._rng
         S_tgt = self.current_S[target_indices]
         S_src = self.current_S[source_indices]
 
@@ -483,7 +537,7 @@ class VectorizedABMEngine:
         if conflict_mask.any():
             exponent = -self.backfire_k * (abs_S_tgt[conflict_mask] - self.backfire_mu)
             p_backfire = 1.0 / (1.0 + np.exp(exponent))
-            rand_vals = np.random.random(len(p_backfire))
+            rand_vals = local_rng.random(len(p_backfire))
             is_backfire = rand_vals < p_backfire
 
             conflict_local = np.where(conflict_mask)[0]
@@ -502,10 +556,18 @@ class VectorizedABMEngine:
         alpha: float = 1.0,
         beta: float = 1.0,
         decay_lambda: float = 0.5,
-        tier_labels: Optional[np.ndarray] = None,
+        rng: Optional[np.random.Generator] = None,
     ) -> Tuple[np.ndarray, int]:
-        """向量化仿真：指数时间衰减 + tier 加权热度 + Per-Batch Min-Max 归一化。"""
+        """向量化仿真。
+
+        duration 单位为小时；时间衰减 dt 同样以小时计
+        （dt_hours = 仿真步 × hours_per_step），与在线侧单位一致（B-2）。
+
+        rng：可选独立随机源（P2-E 可复现）。传入时本次仿真完全由该 RNG 驱动，
+        不消耗引擎内部 RNG，便于校准器按种子精确重放最优 trial。
+        """
         self.reset()
+        local_rng = rng if rng is not None else self._rng
         history: List[int] = []
         curr_count = int(self.state.sum())
         total_views = 0
@@ -518,11 +580,17 @@ class VectorizedABMEngine:
         safe_p = np.clip(p_base, 0.001, 0.999)
         base_logit = np.log(safe_p / (1.0 - safe_p))
 
-        if tier_labels is None:
-            tier_labels = np.full(self.N, 4, dtype=int)
-
         for t in range(duration):
-            online_mask = np.random.random(self.N) < self.p_online
+            # 逐 tier 在线概率（p_online 可为标量或 {tier: prob} 字典）
+            if self.p_online_map is not None:
+                probs = np.asarray(
+                    [self.p_online_map.get(int(tier), 0.1) for tier in self.tier_labels],
+                    dtype=float,
+                )
+                online_mask = local_rng.random(self.N) < probs
+            else:
+                online_mask = local_rng.random(self.N) < self.p_online
+
             active_src = self.state
             active_tgt = (~self.state) & online_mask
 
@@ -532,34 +600,44 @@ class VectorizedABMEngine:
 
             n_active = int(active_tgt.sum())
 
-            # Step 1: raw scores
+            # Step 1: raw scores（与 core.scoring / 在线 SocialRecSys 共用公式）
+            # 兴趣：候选用户对该内容的兴趣度（已在 [0,1]，立场基线在 I_pop 中体现）
             raw_interest = I_pop[active_tgt]
 
-            src_tiers = tier_labels[active_src]
+            # 热度：log1p(累计传播人数)/log1p(N) × 传播源 tier 均值系数
+            # （ABM 无单一作者，用传播者 tier 均值近似作者 tier，与在线侧 TIER_WEIGHT 同表）
+            src_tiers = self.tier_labels[active_src]
             tier_coeffs = np.array([TIER_WEIGHT.get(int(tier), 1.0) for tier in src_tiers])
             avg_tier_coeff = float(np.mean(tier_coeffs)) if len(tier_coeffs) > 0 else 1.0
-            raw_pop_scalar = np.log1p(curr_count) / np.log1p(self.N) * avg_tier_coeff
+            raw_pop_scalar = popularity_base(curr_count, self.N) * avg_tier_coeff
 
-            dt = t - self.time[active_src].min() if active_src.any() else 0.0
-            raw_time_scalar = np.exp(-decay_lambda * max(dt, 0.0))
+            # 时效：exp(-decay_lambda * dt_hours)，dt 单位统一为小时（B-2）
+            dt_steps = t - self.time[active_src].min() if active_src.any() else 0.0
+            dt_hours = max(dt_steps, 0.0) * self.hours_per_step
+            raw_time_scalar = time_decay_score(dt_hours, decay_lambda)
 
-            raw_rand = np.random.random(n_active)
+            raw_rand = local_rng.random(n_active)
 
-            # Step 2: Per-Batch Min-Max normalization
+            # Step 2: Per-Batch Min-Max 归一化（逐候选维度；pop/time 为步内标量，
+            # 以构造归一化 ∈[0,1] 为准，见 core/scoring.py 归一化契约）
             norm_interest = min_max_norm(raw_interest)
             norm_rand = min_max_norm(raw_rand)
 
             # Step 3: Weighted sum
-            scores = (
-                w_i * norm_interest
-                + w_pop * raw_pop_scalar
-                + w_time * raw_time_scalar
-                + w_rand * norm_rand
+            scores = weighted_score(
+                norm_interest,
+                raw_pop_scalar,
+                raw_time_scalar,
+                norm_rand,
+                w_i,
+                w_pop,
+                w_time,
+                w_rand,
             )
 
             total_views += n_active
 
-            visible = np.random.random(n_active) < np.clip(scores, 0.0, 1.0)
+            visible = local_rng.random(n_active) < np.clip(scores, 0.0, 1.0)
             visible_idx = np.where(visible)[0]
             if len(visible_idx) > 0:
                 tgt_indices_all = np.where(active_tgt)[0]
@@ -569,7 +647,7 @@ class VectorizedABMEngine:
                 internal_term = alpha * (np.abs(S_vis) ** 2)
                 action_probs = 1.0 / (1.0 + np.exp(-(base_logit + internal_term)))
 
-                actions = np.random.random(len(actual_indices)) < action_probs
+                actions = local_rng.random(len(actual_indices)) < action_probs
                 new_infected = actual_indices[actions]
 
                 if len(new_infected) > 0:
@@ -577,15 +655,17 @@ class VectorizedABMEngine:
                     self.time[new_infected] = float(t)
                     curr_count += len(new_infected)
 
-                    # Belief update for newly infected
-                    if hasattr(self, '_update_beliefs'):
-                        src_indices = np.where(active_src)[0]
-                        if len(src_indices) > 0:
-                            # pick the most influential source
-                            src_inf = self.Inf[src_indices]
-                            best_src = src_indices[int(np.argmax(src_inf))]
-                            src_arr = np.full(len(new_infected), best_src)
-                            self._update_beliefs(new_infected, src_arr)
+                    # 信念更新：按影响力加权抽样传播源，而非全局最强源（P0 附带）
+                    src_indices = np.where(active_src)[0]
+                    if len(src_indices) > 0:
+                        src_inf = self.Inf[src_indices].astype(float)
+                        total_inf = float(src_inf.sum())
+                        if total_inf > 0:
+                            src_probs = src_inf / total_inf
+                            chosen_src = local_rng.choice(
+                                src_indices, size=len(new_infected), p=src_probs
+                            )
+                            self._update_beliefs(new_infected, chosen_src, rng=local_rng)
 
             history.append(curr_count)
 
@@ -595,6 +675,95 @@ class VectorizedABMEngine:
 # ============================================================
 # 5. E-M 校准引擎 (Optuna)
 # ============================================================
+def dtw_distance(x: np.ndarray, y: np.ndarray) -> float:
+    """动态时间规整距离（平方欧氏成本，O(n*m)，用于短曲线）。"""
+    n, m = len(x), len(y)
+    cost = np.full((n + 1, m + 1), np.inf)
+    cost[0, 0] = 0.0
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            diff = float(x[i - 1] - y[j - 1])
+            cost[i, j] = diff * diff + min(
+                cost[i - 1, j], cost[i, j - 1], cost[i - 1, j - 1]
+            )
+    return float(cost[n, m])
+
+
+def trajectory_loss(hist: np.ndarray, real_curve: Sequence[float]) -> float:
+    """轨迹级损失（P1-A）：DTW 距离 + Pearson 相关混合。
+
+    两条曲线都归一化到 [0,1]，真实曲线线性插值到仿真网格后比较形状：
+    loss = DTW_LOSS_WEIGHT * DTW_norm + PEARSON_LOSS_WEIGHT * (1 - Pearson)。
+    DTW 对时间错位鲁棒，Pearson 衡量趋势方向。
+    """
+    sim = np.asarray(hist, dtype=float)
+    if sim.size < 2:
+        return 0.0
+    sim_norm = sim / max(float(sim.max()), 1e-9)
+
+    real = np.asarray(real_curve, dtype=float)
+    real_norm = real / max(float(real.max()), 1e-9)
+    if len(real_norm) != len(sim_norm):
+        real_grid = np.linspace(0.0, 1.0, len(real_norm))
+        sim_grid = np.linspace(0.0, 1.0, len(sim_norm))
+        real_norm = np.interp(sim_grid, real_grid, real_norm)
+
+    dtw_norm = dtw_distance(sim_norm, real_norm) / max(
+        len(sim_norm) + len(real_norm), 2
+    )
+    pearson = 0.0
+    if sim_norm.std() > 1e-12 and real_norm.std() > 1e-12:
+        pearson = float(np.corrcoef(sim_norm, real_norm)[0, 1])
+        if np.isnan(pearson):
+            pearson = 0.0
+    return DTW_LOSS_WEIGHT * dtw_norm + PEARSON_LOSS_WEIGHT * (1.0 - pearson)
+
+
+def story_scalar_loss(
+    hist: np.ndarray,
+    views: float,
+    story: Dict[str, Any],
+    mode: str,
+) -> float:
+    """单点标量损失（无逐时间点曲线数据时的回退）。
+
+    mode="rate"：E 步校准 p_base，比较仿真转发率 vs 真实转发率；
+    mode="count"：M 步校准权重，比较仿真终值 vs scaled_target。
+    """
+    if mode == "rate":
+        real_repost = float(story.get("real_repost", story.get("real_retweets", 1.0)))
+        real_view = float(story.get("view_count", story.get("real_views", 1.0)))
+        target_rate = real_repost / max(real_view, 1e-9)
+        sim_rate = float(hist[-1]) / max(float(views), 1e-9)
+        return abs(sim_rate - target_rate) / max(target_rate, 1e-9)
+    target_count = float(story.get("scaled_target", 1.0))
+    return abs(float(hist[-1]) - target_count) / max(target_count, 1e-9)
+
+
+def story_loss(
+    hist: np.ndarray,
+    views: float,
+    story: Dict[str, Any],
+    mode: str,
+) -> float:
+    """单条内容的仿真损失：优先轨迹级（有逐时间点曲线时），否则回退单点。"""
+    real_curve = story.get("repost_curve")
+    if real_curve and len(real_curve) >= 2:
+        return trajectory_loss(hist, real_curve)
+    return story_scalar_loss(hist, views, story, mode)
+
+
+def _stable_rng_base(*parts: Any) -> int:
+    """从任意组件生成跨进程稳定的整数种子（P2-E 可复现）。
+
+    不用内置 hash()（受 PYTHONHASHSEED 影响），改用 zlib.crc32。
+    """
+    import zlib
+
+    key = "|".join(str(part) for part in parts).encode("utf-8")
+    return int(zlib.crc32(key))
+
+
 class EMCalibrationEngine:
     """使用 Optuna 进行 E-M 交替校准。"""
 
@@ -603,117 +772,325 @@ class EMCalibrationEngine:
         abm_engine: VectorizedABMEngine,
         stories: List[Dict[str, Any]],
         n_cpu: int = 4,
+        seed: Optional[int] = None,
     ):
         self.engine = abm_engine
         self.stories = stories
         self.story_params: Dict[int, float] = {}
         self.n_cpu = n_cpu
+        self.seed = seed
+        self._rng = np.random.default_rng(seed)
 
     def _calibrate_single_story(
-        self, story: Dict[str, Any], current_weights: Dict[str, float]
+        self,
+        story: Dict[str, Any],
+        story_id: str,
+        current_weights: Dict[str, float],
+        duration: int = 24,
+        decay_lambda: float = 0.5,
     ) -> float:
         import optuna
 
         optuna.logging.set_verbosity(optuna.logging.ERROR)
         logging.getLogger("optuna").setLevel(logging.ERROR)
 
-        real_repost = float(story.get("real_repost", story.get("real_retweets", 1.0)))
-        real_view = float(story.get("view_count", story.get("real_views", 1.0)))
-        target_rate = real_repost / max(real_view, 1e-9)
         I_pop = np.asarray(story["I_pop"])
 
         def objective(trial: optuna.Trial) -> float:
             p = trial.suggest_float("p_base", 0.01, 0.99)
-            sim_rates: List[float] = []
-            for _ in range(5):
+            losses: List[float] = []
+            # P2-E：每次重复用确定性独立 RNG，同种子下 E 步完全可复现
+            rng_base = _stable_rng_base("estep", story_id, trial.number)
+            for repeat in range(5):
+                repeat_rng = np.random.default_rng(rng_base + repeat * 100003)
                 hist, views = self.engine.run_simulation(
-                    current_weights, p, I_pop, duration=24
+                    current_weights,
+                    p,
+                    I_pop,
+                    duration=duration,
+                    decay_lambda=decay_lambda,
+                    rng=repeat_rng,
                 )
-                rate = float(hist[-1]) / max(float(views), 1e-9)
-                sim_rates.append(rate)
-            return float(abs(np.mean(sim_rates) - target_rate) / max(target_rate, 1e-9))
+                losses.append(story_loss(hist, views, story, mode="rate"))
+            return float(np.mean(losses))
 
         study = optuna.create_study(direction="minimize")
         study.optimize(objective, n_trials=20, show_progress_bar=False)
         return float(study.best_params["p_base"])
 
-    def e_step(self, current_weights: Dict[str, float]) -> None:
+    def e_step(
+        self,
+        current_weights: Dict[str, float],
+        duration: int = 24,
+        decay_lambda: float = 0.5,
+    ) -> None:
         logger.info("  [E-Step] 并行校准 %d 条推文...", len(self.stories))
         results = Parallel(n_jobs=self.n_cpu)(
-            delayed(self._calibrate_single_story)(story, current_weights)
-            for story in self.stories
+            delayed(self._calibrate_single_story)(
+                story, str(i), current_weights, duration, decay_lambda
+            )
+            for i, story in enumerate(self.stories)
         )
         for i, p in enumerate(results):
             self.story_params[i] = p
 
-    def m_step(self) -> Tuple[Dict[str, float], float]:
+    @staticmethod
+    def _weights_from_trial_params(params: Dict[str, float]) -> Dict[str, float]:
+        """把 Optuna trial 的四个原始权重归一化为和为 1 的权重向量（P0-1）。"""
+        try:
+            weights = normalized_weight_vector(
+                params["w_i"], params["w_pop"], params["w_time"], params["w_rand"]
+            )
+        except ValueError:
+            return {}
+        weights["decay_lambda"] = float(params["decay_lambda"])
+        return weights
+
+    def _evaluate_story(
+        self,
+        story: Dict[str, Any],
+        p_base: float,
+        weights: Dict[str, float],
+        duration: int,
+        n_repeats: int,
+        mode: str,
+        rng_base: int = 0,
+    ) -> Tuple[float, List[float]]:
+        """固定权重下重复仿真，返回 (平均损失, 各次终值)。
+
+        rng_base：确定性随机种子基（P2-E）。同一 rng_base 下评估结果
+        完全一致，保证 M 步回填一致性验证可以精确重放最优 trial。
+        """
+        I_pop = np.asarray(story["I_pop"])
+        decay_lambda = float(weights.get("decay_lambda", 0.5))
+        losses: List[float] = []
+        finals: List[float] = []
+        for repeat in range(n_repeats):
+            repeat_rng = np.random.default_rng(rng_base + repeat * 100003)
+            hist, _ = self.engine.run_simulation(
+                weights, p_base, I_pop, duration=duration, decay_lambda=decay_lambda,
+                rng=repeat_rng,
+            )
+            losses.append(story_loss(hist, 0.0, story, mode=mode))
+            finals.append(float(hist[-1]))
+        return float(np.mean(losses)), finals
+
+    def _evaluate_weights(
+        self,
+        weights: Dict[str, float],
+        indices: Sequence[int],
+        duration: int,
+        n_repeats: int,
+        mode: str = "count",
+        rng_base: int = 0,
+    ) -> Tuple[float, List[float]]:
+        """在给定内容子集上评估一组权重，返回 (平均损失, 逐内容损失)。"""
+        losses: List[float] = []
+        for offset, i in enumerate(indices):
+            story = self.stories[i]
+            p_base = self.story_params.get(i, 0.1)
+            loss, _ = self._evaluate_story(
+                story, p_base, weights, duration, n_repeats, mode,
+                rng_base=rng_base + offset * 1000003,
+            )
+            losses.append(loss)
+        return float(np.mean(losses)), losses
+
+    def m_step(
+        self,
+        duration: int = 24,
+        n_repeats: int = 5,
+        n_trials: int = 50,
+        max_stories_per_trial: int = 20,
+    ) -> Tuple[Dict[str, float], float, Dict[str, Any]]:
+        """M 步：Optuna 直接搜索四个权重（P0-1），回填与最优 trial 严格一致。
+
+        修复前：alpha_param 只控制 Dirichlet 集中度，权重靠 trial.number 随机抽，
+        且回填用固定种子重建，与最优 loss 的权重不是同一组。
+        修复后：四个权重直接作为搜索参数并归一化；回填用 study.best_params，
+        并附一致性验证（用 best_weights 重跑，loss 应接近 study.best_value）。
+        """
         logger.info("  [M-Step] 优化全局推荐权重 W + decay_lambda...")
         import optuna
 
         optuna.logging.set_verbosity(optuna.logging.ERROR)
         logging.getLogger("optuna").setLevel(logging.ERROR)
 
+        story_count = len(self.stories)
+        if story_count == 0:
+            raise RuntimeError("没有可校准的内容（stories 为空）。")
+        sample_size = min(max_stories_per_trial, story_count)
+
+        # B-2：study 开始前固定一次抽样集，贯穿所有 trial——
+        # 避免不同 trial 在不同内容子集上评 loss 引入子集噪声
+        if sample_size >= story_count:
+            fixed_indices = list(range(story_count))
+        else:
+            fixed_indices = self._rng.choice(
+                story_count, size=sample_size, replace=False
+            ).tolist()
+
         def objective(trial: optuna.Trial) -> float:
-            # Dirichlet 采样 4 个权重 (自动满足 sum=1)
-            alpha_param = trial.suggest_float("alpha_param", 0.5, 5.0)
-            raw = np.random.default_rng(trial.number).dirichlet(np.full(4, alpha_param))
-            w_i, w_pop, w_time, w_rand = float(raw[0]), float(raw[1]), float(raw[2]), float(raw[3])
-
-            decay_lambda = trial.suggest_float("decay_lambda", 0.01, 3.0, log=True)
-
-            weights: Dict[str, float] = {
-                "w_i": w_i, "w_pop": w_pop, "w_time": w_time, "w_rand": w_rand,
+            params = {
+                "w_i": trial.suggest_float("w_i", 0.0, 1.0),
+                "w_pop": trial.suggest_float("w_pop", 0.0, 1.0),
+                "w_time": trial.suggest_float("w_time", 0.0, 1.0),
+                "w_rand": trial.suggest_float("w_rand", 0.0, 1.0),
+                "decay_lambda": trial.suggest_float("decay_lambda", 0.01, 3.0, log=True),
             }
-
-            total_rel_error = 0.0
-            sample_indices = list(range(min(len(self.stories), 20)))
-            if not sample_indices:
-                return 0.0
-
-            for i in sample_indices:
-                story = self.stories[i]
-                p_base = self.story_params[i]
-                I_pop = np.asarray(story["I_pop"])
-                target_count = float(story["scaled_target"])
-
-                sim_finals: List[float] = []
-                for _ in range(3):
-                    hist, _ = self.engine.run_simulation(
-                        weights, p_base, I_pop, duration=24, decay_lambda=decay_lambda
-                    )
-                    sim_finals.append(float(hist[-1]))
-                rel_error = abs(np.mean(sim_finals) - target_count) / max(target_count, 1e-9)
-                total_rel_error += rel_error
-
-            return total_rel_error / len(sample_indices)
+            weights = self._weights_from_trial_params(params)
+            if not weights:
+                return float("inf")
+            indices = fixed_indices
+            trial.set_user_attr("sample_indices", indices)
+            # 确定性 RNG 基：同一 trial 号 + 同一采样集 → 损失完全可重放（P2-E）
+            rng_base = _stable_rng_base("mstep", trial.number, tuple(indices))
+            loss, _ = self._evaluate_weights(
+                weights, indices, duration, n_repeats, rng_base=rng_base
+            )
+            return loss
 
         study = optuna.create_study(direction="minimize")
-        study.optimize(objective, n_trials=50, show_progress_bar=False)
+        study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
 
-        best = study.best_params
-        raw = np.random.default_rng(0).dirichlet(np.full(4, best["alpha_param"]))
-        best_weights: Dict[str, float] = {
-            "w_i": float(raw[0]),
-            "w_pop": float(raw[1]),
-            "w_time": float(raw[2]),
-            "w_rand": float(raw[3]),
-            "decay_lambda": float(best["decay_lambda"]),
+        best_weights = self._weights_from_trial_params(study.best_params)
+        if not best_weights:
+            raise RuntimeError("Optuna 搜索失败：所有 trial 的权重和均为 0。")
+
+        # 一致性验证：用 best_params 回填的权重 + 最优 trial 的采样集与 RNG 基
+        # 精确重放——返回的 best_weights 与 study.best_value 必须严格对应（P0-1）
+        best_indices = study.best_trial.user_attrs.get("sample_indices") or list(
+            range(sample_size)
+        )
+        verify_rng_base = _stable_rng_base(
+            "mstep", study.best_trial.number, tuple(best_indices)
+        )
+        verify_loss, verify_per_story = self._evaluate_weights(
+            best_weights, best_indices, duration, n_repeats, rng_base=verify_rng_base
+        )
+        diagnostics: Dict[str, Any] = {
+            "verify_loss": float(verify_loss),
+            "study_best_value": float(study.best_value),
+            "loss_diff_abs": float(abs(verify_loss - study.best_value)),
+            "loss_diff_rel": float(
+                abs(verify_loss - study.best_value) / max(abs(study.best_value), 1e-9)
+            ),
+            "n_trials": n_trials,
+            "best_trial_number": int(study.best_trial.number),
+            "sampler": type(study.sampler).__name__,
+            "n_repeats": n_repeats,
+            "sample_size": sample_size,
+            "story_count": story_count,
+            "fixed_sample_indices": [int(i) for i in fixed_indices],
+            "trajectory_loss_used": any(
+                bool(story.get("repost_curve")) for story in self.stories
+            ),
+            "verify_per_story_loss": [float(v) for v in verify_per_story],
         }
-        return best_weights, float(study.best_value)
+        if diagnostics["loss_diff_rel"] > 0.3:
+            logger.warning(
+                "  [M-Step] 一致性验证偏差较大（相对 %.2f%%），请检查 best_weights 与 best_value 的对应关系。",
+                diagnostics["loss_diff_rel"] * 100,
+            )
+        return best_weights, float(study.best_value), diagnostics
 
-    def run_em_loop(self, iterations: int = 3) -> Dict[str, float]:
+    def run_ablation(
+        self,
+        weights: Dict[str, float],
+        duration: int = 24,
+        n_repeats: int = 5,
+        max_stories: int = 20,
+    ) -> Dict[str, Any]:
+        """消融实验（P1-B）：依次去掉某一维权重，观察损失退化。
+
+        去掉某维后其余维度重新归一化；loss 上升越多说明该维度贡献越大，
+        直接支撑开题报告“推荐参数消融实验”。
+        """
+        logger.info("  [Ablation] 逐维消融验证各权重贡献...")
+        story_count = len(self.stories)
+        sample_size = min(max_stories, story_count)
+        if sample_size >= story_count:
+            indices = list(range(story_count))
+        else:
+            indices = self._rng.choice(
+                story_count, size=sample_size, replace=False
+            ).tolist()
+
+        base_rng = _stable_rng_base("ablation-base", tuple(indices))
+        base_loss, _ = self._evaluate_weights(
+            weights, indices, duration, n_repeats, rng_base=base_rng
+        )
+        result: Dict[str, Any] = {"base_loss": float(base_loss), "ablations": {}}
+        dims = [
+            ("w_i", "interest"),
+            ("w_pop", "popularity"),
+            ("w_time", "time"),
+            ("w_rand", "random"),
+        ]
+        for key, label in dims:
+            ablated = dict(weights)
+            ablated[key] = 0.0
+            total = (
+                float(ablated.get("w_i", 0.0))
+                + float(ablated.get("w_pop", 0.0))
+                + float(ablated.get("w_time", 0.0))
+                + float(ablated.get("w_rand", 0.0))
+            )
+            if total < 1e-9:
+                continue
+            for dim_key in ("w_i", "w_pop", "w_time", "w_rand"):
+                ablated[dim_key] = float(ablated[dim_key]) / total
+            # 消融评估与基线使用相同采样集与同一随机流（隔离权重贡献，P2-E 可比）
+            loss, _ = self._evaluate_weights(
+                ablated, indices, duration, n_repeats, rng_base=base_rng
+            )
+            delta = float(loss - base_loss)
+            result["ablations"][key] = {
+                "label": label,
+                "loss": float(loss),
+                "delta": delta,
+                "delta_rel": float(delta / max(abs(base_loss), 1e-9)),
+            }
+            logger.info(
+                "  [Ablation] 去掉 %s 后 loss=%.4f（Δ%.4f）",
+                label,
+                loss,
+                delta,
+            )
+        return result
+
+    def run_em_loop(
+        self,
+        iterations: int = 3,
+        duration: int = 24,
+        n_repeats: int = 5,
+        n_trials: int = 50,
+    ) -> Tuple[Dict[str, float], Dict[str, Any]]:
         weights: Dict[str, float] = {
             "w_i": 0.35, "w_pop": 0.25, "w_time": 0.25, "w_rand": 0.15, "decay_lambda": 0.5,
         }
+        iteration_diagnostics: List[Dict[str, Any]] = []
         logger.info("\n=== 启动 E-M (Optuna) 校准循环 (Max %d 轮) ===", iterations)
         for k in range(iterations):
             logger.info("\n--- Iteration %d ---", k + 1)
-            e_step_weights = {k: v for k, v in weights.items() if k != "decay_lambda"}
-            self.e_step(e_step_weights)
-            weights, loss = self.m_step()
+            e_step_weights = {
+                key: value for key, value in weights.items() if key != "decay_lambda"
+            }
+            self.e_step(
+                e_step_weights,
+                duration=duration,
+                decay_lambda=float(weights.get("decay_lambda", 0.5)),
+            )
+            weights, loss, diagnostics = self.m_step(
+                duration=duration,
+                n_repeats=n_repeats,
+                n_trials=n_trials,
+            )
+            diagnostics["iteration"] = k + 1
+            iteration_diagnostics.append(diagnostics)
             logger.info("  >>> Iteration %d 最佳参数: %s", k + 1, weights)
             logger.info("  >>> Global MRE: %.4f", loss)
-        return weights
+        return weights, {"iterations": iteration_diagnostics}
 
 
 # ============================================================
@@ -732,17 +1109,25 @@ class RecommendationParameterInferer:
         self,
         num_agents: int = 1500,
         min_scaled_target: int = 5,
-        p_online: float = 0.1,
+        p_online: float | Dict[int, float] = 0.1,
         embedding_model: str = "BAAI/bge-m3",
         n_cpu: int = 4,
         target_size_for_sampling: Optional[int] = None,
+        random_seed: Optional[int] = None,
+        time_scale: float = 3600.0,
     ):
         self.num_agents = num_agents
         if target_size_for_sampling is None:
             target_size_for_sampling = num_agents
         self.min_scaled_target = min_scaled_target
+        # p_online 可为标量或 {tier: prob} 分层字典（P0-3 逐 tier 在线概率）
         self.p_online = p_online
         self.n_cpu = n_cpu
+        # 全链路可复现种子（P2-E）：种群合成 / 引擎 / M 步内容抽样共用
+        self.random_seed = random_seed
+        # A-1：实验 system_time.time_scale（每步秒数），单一真值源；
+        # ABM hours_per_step = time_scale / 3600，dt 两侧统一到小时
+        self.time_scale = float(time_scale)
 
         # 延迟初始化
         self._embed_service: Optional[EmbeddingService] = None
@@ -758,6 +1143,11 @@ class RecommendationParameterInferer:
         self.calibrated_probs: Dict[str, Dict[str, float]] = {}
         self.best_weights: Dict[str, float] = {}
         self.weight_fit_diagnostics: Dict[str, Dict[str, float]] = {}
+
+        # C-1 留出验证：EM 只用 train，最终指标在 test（模型未见内容）上算
+        self.train_story_ids: List[str] = []
+        self.test_story_ids: List[str] = []
+        self._calibration_story_ids: List[str] = []
 
         self._embedding_model_name = embedding_model
 
@@ -780,14 +1170,58 @@ class RecommendationParameterInferer:
         seed_S = self._compass.compute_stance()
 
         synth = PopulationSynthesizer(target_size=self.num_agents)
-        self._population = synth.synthesize(seed_S, semantic.influences)
+        self._population = synth.synthesize(
+            seed_S,
+            semantic.influences,
+            seed_tiers=semantic.tiers,
+            seed=self.random_seed,
+        )
 
+        # A-1：hours_per_step 从 time_scale 单一推导（每步 1 小时基准时 = 1.0）
+        hours_per_step = self.time_scale / 3600.0
         self._engine = VectorizedABMEngine(
             S=self._population.S,
             Inf=self._population.Inf,
             log_saturation_threshold=self._population.log_saturation_threshold,
-            p_online=self.p_online,
+            p_online=self.p_online if isinstance(self.p_online, (int, float)) else 0.1,
+            p_online_map=self.p_online if isinstance(self.p_online, dict) else None,
+            tier_labels=self._population.tiers,
+            hours_per_step=hours_per_step,
+            seed=self.random_seed,
         )
+
+    def split_holdout(self, test_ratio: float = 0.3) -> None:
+        """C-1：70/30 留出切分（固定种子，可复现）。
+
+        校准（E/M 步）只在训练集上进行；验证指标在测试集（模型未见过的
+        内容）上计算，防过拟合。
+        """
+        story_ids = list(self.representative_stories.keys())
+        if len(story_ids) < 5:
+            logger.warning(
+                "内容数 <5，留出切分退化为全量校准（无独立验证集，指标不可过度解读）。"
+            )
+            self.train_story_ids = list(story_ids)
+            self.test_story_ids = []
+            return
+        rng = np.random.default_rng(self.random_seed)
+        shuffled = rng.permutation(story_ids).tolist()
+        n_test = max(1, int(round(len(story_ids) * test_ratio)))
+        self.test_story_ids = sorted(shuffled[:n_test])
+        test_set = set(self.test_story_ids)
+        self.train_story_ids = sorted(
+            [sid for sid in story_ids if sid not in test_set]
+        )
+        logger.info(
+            "[Holdout] 训练集 %d 条 / 验证集 %d 条（test_ratio=%.2f）",
+            len(self.train_story_ids),
+            len(self.test_story_ids),
+            test_ratio,
+        )
+
+    def _stories_by_ids(self, story_ids: Sequence[str]) -> List[Dict[str, Any]]:
+        """按 id 顺序取代表性内容（保证与 story_params 位置索引一一对应）。"""
+        return [self.representative_stories[sid] for sid in story_ids]
 
     def select_representative_stories(
         self,
@@ -823,18 +1257,24 @@ class RecommendationParameterInferer:
             tweet_text = str(story.get("text", ""))
             seed_I = self._compass.compute_interest(tweet_text)
             I_pop_story = synth.expand_interest_for_population(
-                seed_I, self._population.source_indices
+                seed_I, self._population.source_indices, seed=self.random_seed
             )
             story["I_pop"] = I_pop_story
 
     def calibrate_probabilities(
-        self, current_weights: Optional[Dict[str, float]] = None
+        self,
+        current_weights: Optional[Dict[str, float]] = None,
+        story_ids: Optional[Sequence[str]] = None,
     ) -> Dict[str, Dict[str, float]]:
-        """E 步：固定权重，校准每条内容的 p_base 概率。"""
+        """E 步：固定权重，校准每条内容的 p_base 概率。
+
+        story_ids：参与校准的内容 id（C-1 下默认只含训练集）。
+        """
         if self._engine is None:
             raise RuntimeError("请先调用 load_portraits() 加载用户画像。")
 
-        stories = list(self.representative_stories.values())
+        ids = list(story_ids or self.train_story_ids or self.representative_stories.keys())
+        stories = self._stories_by_ids(ids)
         if not stories:
             return {}
 
@@ -845,12 +1285,13 @@ class RecommendationParameterInferer:
             "w_rand": 0.1,
         }
 
-        calibrator = EMCalibrationEngine(self._engine, stories, n_cpu=self.n_cpu)
+        calibrator = EMCalibrationEngine(
+            self._engine, stories, n_cpu=self.n_cpu, seed=self.random_seed
+        )
         calibrator.e_step(weights)
 
         calibrated: Dict[str, Dict[str, float]] = {}
-        story_ids = list(self.representative_stories.keys())
-        for i, story_id in enumerate(story_ids):
+        for i, story_id in enumerate(ids):
             story_info = self.representative_stories[story_id]
             p_base = calibrator.story_params.get(i, 0.1)
             calibrated[story_id] = {
@@ -862,42 +1303,58 @@ class RecommendationParameterInferer:
 
         self.calibrated_probs = calibrated
         self._calibrator = calibrator
+        self._calibration_story_ids = ids
         return calibrated
 
     def optimize_recommendation_weights(
         self, current_weights: Optional[Dict[str, float]] = None
     ) -> Dict[str, Any]:
-        """M 步：固定概率，搜索最优推荐权重。"""
+        """M 步：固定概率，搜索最优推荐权重（C-1 下只在训练集上进行）。"""
         if not self.calibrated_probs:
             raise RuntimeError("请先完成概率校准 (calibrate_probabilities)。")
 
-        stories = list(self.representative_stories.values())
-        calibrator = EMCalibrationEngine(self._engine, stories, n_cpu=self.n_cpu)
+        ids = list(self._calibration_story_ids or self.calibrated_probs.keys())
+        stories = self._stories_by_ids(ids)
+        calibrator = EMCalibrationEngine(
+            self._engine, stories, n_cpu=self.n_cpu, seed=self.random_seed
+        )
 
-        # 复用 E 步的结果
+        # 复用 E 步的结果（位置索引与 ids 一一对应）
         for i in range(len(stories)):
             calibrator.story_params[i] = self._calibrator.story_params.get(i, 0.1)
 
-        best_weights, best_loss = calibrator.m_step()
+        best_weights, best_loss, step_diagnostics = calibrator.m_step()
 
         self.best_weights = best_weights
 
-        # 构建诊断信息
+        # 构建诊断信息（P1-B：多次重复并报告均值/标准差，不单次下结论）
         diagnostics: Dict[str, Dict[str, float]] = {}
-        story_ids = list(self.representative_stories.keys())
-        for i, story_id in enumerate(story_ids):
+        decay_lambda = float(best_weights.get("decay_lambda", 0.5))
+        for i, story_id in enumerate(ids):
             story = stories[i]
             p_base = calibrator.story_params.get(i, 0.1)
             I_pop = np.asarray(story["I_pop"])
-            hist, views = self._engine.run_simulation(
-                best_weights, p_base, I_pop, duration=24
-            )
+            finals: List[float] = []
+            last_views = 0.0
+            for _ in range(5):
+                hist, views = self._engine.run_simulation(
+                    best_weights, p_base, I_pop, duration=24,
+                    decay_lambda=decay_lambda,
+                )
+                finals.append(float(hist[-1]))
+                last_views = float(views)
+            finals_arr = np.asarray(finals)
             diagnostics[story_id] = {
-                "mean_scaled_repost": float(hist[-1]),
-                "mean_scaled_view": float(views),
+                "mean_scaled_repost": float(finals_arr.mean()),
+                "std_scaled_repost": float(finals_arr.std()),
+                "mean_scaled_view": last_views,
                 "scaled_target": float(story.get("scaled_target", 0)),
             }
 
+        diagnostics["_meta"] = {
+            "best_loss": float(best_loss),
+            **step_diagnostics,
+        }
         self.weight_fit_diagnostics = diagnostics
 
         return {
@@ -907,9 +1364,175 @@ class RecommendationParameterInferer:
             "p_online": self.p_online,
         }
 
-    def run_em_calibration_loop(self, max_iterations: int = 3) -> Dict[str, Any]:
-        """执行完整 E-M 交替校准。"""
-        stories = list(self.representative_stories.values())
+    def evaluate_holdout(
+        self,
+        weights: Dict[str, float],
+        n_repeats: int = 30,
+        duration: int = 24,
+    ) -> Dict[str, Any]:
+        """C-1/C-2/C-3：在留出验证集上做多指标验证。
+
+        - 权重固定，测试内容各自先做一次 E 步校准 p_base（p_base 是内容级
+          音量参数，不在“权重”的验证范围；权重的泛化性才是被验证对象）；
+        - N≥30 次独立仿真，报告均值 / 95% CI / Cohen's d；
+        - 分布级 KS 检验 + Spearman 秩相关 + MAE/MRE。
+        """
+        if not self.test_story_ids:
+            return {"available": False}
+        from scipy import stats
+
+        test_ids = self.test_story_ids
+        test_stories = self._stories_by_ids(test_ids)
+        decay_lambda = float(weights.get("decay_lambda", 0.5))
+        e_weights = {k: v for k, v in weights.items() if k != "decay_lambda"}
+
+        # 测试内容各自的 p_base（内容级音量参数，固定权重下校准）
+        test_calibrator = EMCalibrationEngine(
+            self._engine, test_stories, n_cpu=self.n_cpu, seed=self.random_seed
+        )
+        test_calibrator.e_step(e_weights, duration=duration, decay_lambda=decay_lambda)
+
+        per_story_means: List[float] = []
+        targets: List[float] = []
+        sim_finals_all: List[float] = []
+        per_story_mre: List[float] = []
+        per_story_stats: Dict[str, Dict[str, float]] = {}
+        for i, story_id in enumerate(test_ids):
+            story = test_stories[i]
+            p_base = test_calibrator.story_params.get(i, 0.1)
+            target = float(story.get("scaled_target", 0.0))
+            targets.append(target)
+            rng_base = _stable_rng_base("holdout", story_id, self.random_seed)
+            finals: List[float] = []
+            for repeat in range(n_repeats):
+                repeat_rng = np.random.default_rng(rng_base + repeat * 100003)
+                hist, _ = self._engine.run_simulation(
+                    weights, p_base, np.asarray(story["I_pop"]),
+                    duration=duration, decay_lambda=decay_lambda, rng=repeat_rng,
+                )
+                finals.append(float(hist[-1]))
+            finals_arr = np.asarray(finals, dtype=float)
+            mean_final = float(finals_arr.mean())
+            per_story_means.append(mean_final)
+            sim_finals_all.extend(finals)
+            mre = abs(mean_final - target) / max(target, 1e-9)
+            per_story_mre.append(mre)
+            per_story_stats[story_id] = {
+                "mean_sim": mean_final,
+                "std_sim": float(finals_arr.std()),
+                "target": target,
+                "mre": mre,
+            }
+
+        targets_arr = np.asarray(targets, dtype=float)
+        means_arr = np.asarray(per_story_means, dtype=float)
+        mre_arr = np.asarray(per_story_mre, dtype=float)
+        sim_all_arr = np.asarray(sim_finals_all, dtype=float)
+
+        mae = float(np.mean(np.abs(means_arr - targets_arr)))
+        mre_mean = float(np.mean(mre_arr))
+        # 95% CI（均值相对误差，跨内容）
+        mre_ci_half = 1.96 * float(mre_arr.std(ddof=1) / np.sqrt(len(mre_arr))) if len(mre_arr) > 1 else 0.0
+
+        # KS 检验：仿真传播量分布 vs 真实分布（原始 + 均值归一化两种口径）
+        ks_stat_raw, ks_p_raw = stats.ks_2samp(sim_all_arr, targets_arr)
+        sim_norm = sim_all_arr / max(float(sim_all_arr.mean()), 1e-9)
+        tgt_norm = targets_arr / max(float(targets_arr.mean()), 1e-9)
+        ks_stat_norm, ks_p_norm = stats.ks_2samp(sim_norm, tgt_norm)
+
+        # Spearman 秩相关：能否分辨“哪些内容会火”
+        spearman_rho: Optional[float] = None
+        spearman_p: Optional[float] = None
+        if len(means_arr) >= 3:
+            spearman = stats.spearmanr(means_arr, targets_arr)
+            spearman_rho = float(spearman.statistic)
+            spearman_p = float(spearman.pvalue)
+
+        # Cohen's d：仿真分布 vs 真实分布（效应量）
+        pooled_std = np.sqrt(
+            (sim_all_arr.std(ddof=1) ** 2 + targets_arr.std(ddof=1) ** 2) / 2
+        )
+        cohens_d = float(
+            (sim_all_arr.mean() - targets_arr.mean()) / max(pooled_std, 1e-9)
+        )
+
+        return {
+            "available": True,
+            "test_story_ids": test_ids,
+            "n_test": len(test_ids),
+            "n_repeats": n_repeats,
+            "mae": mae,
+            "mre_mean": mre_mean,
+            "mre_ci95": [float(max(mre_mean - mre_ci_half, 0.0)), float(mre_mean + mre_ci_half)],
+            "ks_stat_raw": float(ks_stat_raw),
+            "ks_p_raw": float(ks_p_raw),
+            "ks_stat_norm": float(ks_stat_norm),
+            "ks_p_norm": float(ks_p_norm),
+            "spearman_rho": spearman_rho,
+            "spearman_p": spearman_p,
+            "cohens_d": cohens_d,
+            "per_story": per_story_stats,
+            "p_base": [test_calibrator.story_params.get(i, 0.1) for i in range(len(test_ids))],
+        }
+
+    def run_seed_robustness(
+        self,
+        seeds: Sequence[int] = (0, 1, 2),
+        duration: int = 24,
+        n_repeats: int = 5,
+        n_trials: int = 20,
+    ) -> Dict[str, Any]:
+        """C-5：扰动随机种子重跑 M 步，报告校准权重的稳定性（mean/std/range）。
+
+        对应 TRAILS 的鲁棒性审计思想；论文写作时再补充非参数检验
+        （Mann-Whitney U + Holm 校正）。
+        """
+        ids = list(self.train_story_ids or self.representative_stories.keys())
+        stories = self._stories_by_ids(ids)
+        if not stories:
+            return {"available": False}
+        base_params = dict(
+            getattr(self, "_calibrator", None).story_params
+        ) if getattr(self, "_calibrator", None) is not None else {}
+        weights_by_seed: Dict[str, Dict[str, float]] = {}
+        for seed in seeds:
+            cal = EMCalibrationEngine(
+                self._engine, stories, n_cpu=self.n_cpu, seed=int(seed)
+            )
+            cal.story_params = dict(base_params)
+            w, _, _ = cal.m_step(
+                duration=duration, n_repeats=n_repeats, n_trials=n_trials
+            )
+            weights_by_seed[str(seed)] = w
+        dims = ["w_i", "w_pop", "w_time", "w_rand", "decay_lambda"]
+        per_dim: Dict[str, Dict[str, Any]] = {}
+        for dim in dims:
+            arr = np.asarray([weights_by_seed[s][dim] for s in weights_by_seed], dtype=float)
+            per_dim[dim] = {
+                "mean": float(arr.mean()),
+                "std": float(arr.std()),
+                "range": [float(arr.min()), float(arr.max())],
+            }
+        return {
+            "available": True,
+            "seeds": [int(s) for s in seeds],
+            "weights_by_seed": weights_by_seed,
+            "per_dim": per_dim,
+        }
+
+    def run_em_calibration_loop(
+        self,
+        max_iterations: int = 3,
+        holdout_n_repeats: int = 30,
+        robustness_seeds: Optional[Sequence[int]] = None,
+    ) -> Dict[str, Any]:
+        """执行完整 E-M 交替校准（C 系列验证全部接入）。
+
+        流程：训练集 EM → 消融（训练集损失）→ 留出验证（N≥30 重复 +
+        KS/Spearman/CI/Cohen's d）→ 消融接验证集 → 可选种子鲁棒性审计。
+        """
+        ids = list(self.train_story_ids or self.representative_stories.keys())
+        stories = self._stories_by_ids(ids)
         if not stories:
             logger.warning("没有代表性内容，无法校准。")
             return {}
@@ -917,16 +1540,86 @@ class RecommendationParameterInferer:
         if self._engine is None:
             raise RuntimeError("请先调用 load_portraits() 加载用户画像。")
 
-        calibrator = EMCalibrationEngine(self._engine, stories, n_cpu=self.n_cpu)
+        calibrator = EMCalibrationEngine(
+            self._engine, stories, n_cpu=self.n_cpu, seed=self.random_seed
+        )
         start_time = time.time()
-        best_weights = calibrator.run_em_loop(iterations=max_iterations)
+        best_weights, loop_diagnostics = calibrator.run_em_loop(
+            iterations=max_iterations
+        )
+        self._calibration_story_ids = ids
+        self._calibrator = calibrator
+
+        # calibrated_probs：按训练集 id 对齐写入（供 YAML calibrated_p_base）
+        self.calibrated_probs = {
+            sid: {
+                "p_base": calibrator.story_params.get(i, 0.1),
+                "real_repost": float(self.representative_stories[sid].get("real_repost", 0)),
+                "view_count": float(self.representative_stories[sid].get("view_count", 0)),
+                "scaled_target": float(self.representative_stories[sid].get("scaled_target", 0)),
+            }
+            for i, sid in enumerate(ids)
+        }
+
+        # 消融（P1-B / C-4）：训练集损失退化
+        ablation = calibrator.run_ablation(best_weights)
+
+        # C-1/C-2/C-3：留出验证（测试集 + N≥30 重复 + 多指标）
+        holdout = self.evaluate_holdout(best_weights, n_repeats=holdout_n_repeats)
+
+        # C-4：消融接验证集指标（复用留出 E 步的 p_base）
+        ablation_holdout: Dict[str, Any] = {"available": False}
+        if holdout.get("available") and self.test_story_ids:
+            test_stories = self._stories_by_ids(self.test_story_ids)
+            test_calibrator = EMCalibrationEngine(
+                self._engine, test_stories, n_cpu=self.n_cpu, seed=self.random_seed
+            )
+            for i, p in enumerate(holdout["p_base"]):
+                test_calibrator.story_params[i] = p
+            ablation_holdout = test_calibrator.run_ablation(
+                best_weights, max_stories=len(test_stories)
+            )
+
+        # C-5：种子扰动鲁棒性（可选，较耗时）
+        robustness: Dict[str, Any] = {"available": False, "skipped": True}
+        if robustness_seeds:
+            robustness = self.run_seed_robustness(seeds=robustness_seeds)
 
         self.best_weights = best_weights
+        self.weight_fit_diagnostics["_meta"] = {
+            "em_iterations": loop_diagnostics["iterations"],
+            "ablation": ablation,
+            "ablation_holdout": ablation_holdout,
+            "holdout": holdout,
+            "robustness": robustness,
+            "train_story_ids": ids,
+            "test_story_ids": self.test_story_ids,
+        }
         logger.info("\n================ FINAL RESULT ================")
         logger.info("总耗时: %.2fs", time.time() - start_time)
         logger.info("计算出的推荐系统权重:")
         for k, v in best_weights.items():
             logger.info("  %s: %.4f", k, v)
+        logger.info("消融结果（loss 上升越多说明该维度越关键）:")
+        for key, info in ablation["ablations"].items():
+            logger.info(
+                "  去掉 %s: Δ%.4f (%.1f%%)",
+                info["label"],
+                info["delta"],
+                info["delta_rel"] * 100,
+            )
+        if holdout.get("available"):
+            logger.info(
+                "留出验证（%d 条，N=%d）：MAE=%.2f, MRE=%.4f, "
+                "KS(p)=%.3f, Spearman=%.3f (p=%.3f)",
+                holdout["n_test"],
+                holdout["n_repeats"],
+                holdout["mae"],
+                holdout["mre_mean"],
+                holdout["ks_p_norm"],
+                holdout["spearman_rho"] or float("nan"),
+                holdout["spearman_p"] or float("nan"),
+            )
 
         return best_weights
 
@@ -1006,9 +1699,12 @@ def _portrait_to_persona(profile: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                     labels.append(str(stance))
 
     # user_info: 从 agent_profile 或 stable_profile 提取
+    # B-3：与在线 belief_text 口径一致——identity_summary + interest_summary
     user_info = ""
     if isinstance(agent, dict):
-        user_info = str(agent.get("identity_summary", ""))
+        identity = str(agent.get("identity_summary", "") or "").strip()
+        interest = str(agent.get("interest_summary", "") or "").strip()
+        user_info = f"{identity} {interest}".strip()
     if not user_info:
         user_info = str(stable.get("profile_summary", ""))
 

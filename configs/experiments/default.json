@@ -14,7 +14,7 @@
     "time_scale": 3600
   },
   "runtime": {
-    "rounds": 4,
+    "rounds": 24,
     "interval_seconds": 3.0,
     "random_seed": 42
   },

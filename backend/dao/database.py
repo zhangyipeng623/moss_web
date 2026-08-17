@@ -80,11 +80,12 @@ async def init_db(embedding_dim: int = 384):
             )
         """)
 
-        # Create posts_vec virtual table
+        # Create posts_vec virtual table（cosine 度量：distance = 1 - cosθ，
+        # 与 ABM/在线统一使用余弦相似度，见 docs/plan/在线仿真与参数一致性方案.md B-3）
         try:
             await db.execute(
                 f"""CREATE VIRTUAL TABLE IF NOT EXISTS posts_vec USING vec0(
-                    content_embedding float[{embedding_dim}]
+                    content_embedding float[{embedding_dim}] distance_metric=cosine
                 )"""
             )
         except Exception as e:

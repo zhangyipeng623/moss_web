@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
+import numpy as np
+
 
 PORTRAIT_USER_SUPPORTED_COLUMNS = (
     "用户名",
@@ -187,6 +189,29 @@ def parse_args() -> argparse.Namespace:
         help="并行校准使用的 CPU 核心数，默认 4",
     )
     recommender_parser.add_argument(
+        "--random-seed",
+        type=int,
+        default=42,
+        help="全链路随机种子（P2-E 可复现：种群合成/引擎/M 步抽样共用），默认 42",
+    )
+    recommender_parser.add_argument(
+        "--time-scale",
+        type=float,
+        default=3600.0,
+        help="实验 system_time.time_scale（每步秒数），ABM hours_per_step=time_scale/3600 单一真值源（A-1），默认 3600",
+    )
+    recommender_parser.add_argument(
+        "--rounds",
+        type=int,
+        default=24,
+        help="实验 runtime.rounds（总步数），默认 24（时间基准：每步 1 小时，总跨度 24 小时）",
+    )
+    recommender_parser.add_argument(
+        "--robustness-seeds",
+        default="",
+        help="C-5 种子扰动鲁棒性审计：逗号分隔种子列表（如 0,1,2），留空跳过",
+    )
+    recommender_parser.add_argument(
         "--input",
         help=argparse.SUPPRESS,
     )
@@ -291,18 +316,44 @@ async def run_portrait_batch_command(args: argparse.Namespace) -> None:
 
     # ----------------------------------------------------------------
     # Phase 1: 预计算所有用户的 account_influence（不调 LLM）
+    # 问题 3 修复：两张表只读一次，循环内按用户名查索引，
+    # 不再为每个用户重复整表读取（原为 O(N × 表大小)）。
     # ----------------------------------------------------------------
+    user_rows = _load_tabular_rows(data_path / args.user_file)
+    post_rows = _load_tabular_rows(data_path / args.post_file)
+    _validate_tabular_columns(
+        rows=user_rows,
+        path=data_path / args.user_file,
+        required_columns=PORTRAIT_USER_REQUIRED_COLUMNS,
+        supported_columns=PORTRAIT_USER_SUPPORTED_COLUMNS,
+    )
+    _validate_tabular_columns(
+        rows=post_rows,
+        path=data_path / args.post_file,
+        required_columns=PORTRAIT_POST_REQUIRED_COLUMNS,
+        supported_columns=PORTRAIT_POST_SUPPORTED_COLUMNS,
+    )
+
+    # B-1（R4）：一次建索引，循环内 O(1) 查表（I/O 已提外 + CPU 侧不再逐用户扫全表）
+    users_by_name, posts_by_user = _build_portrait_user_indexes(
+        user_rows=user_rows,
+        post_rows=post_rows,
+    )
+
     user_records: list[dict[str, Any]] = []
     phase1_failed: list[dict[str, str]] = []
 
     print(f"阶段 1/2：预计算影响力分数，共 {len(all_usernames)} 个用户 ...\n")
     for username in all_usernames:
         try:
-            source, _ = _build_portrait_source_from_excel(
-                data_path=data_path,
+            target_name = _normalize_username(username)
+            user_row = _select_best_user_row(users_by_name.get(target_name, []))
+            if user_row is None:
+                raise ValueError(f"在用户表中找不到用户：{username}")
+            source, _ = _build_portrait_source_from_matched(
+                user_row=user_row,
+                matched_posts=posts_by_user.get(target_name, []),
                 user_name=username,
-                user_file=args.user_file,
-                post_file=args.post_file,
             )
         except Exception as exc:
             phase1_failed.append(
@@ -333,7 +384,17 @@ async def run_portrait_batch_command(args: argparse.Namespace) -> None:
     # ----------------------------------------------------------------
     sorted_records = sorted(user_records, key=lambda r: r["account_influence"])
     n = len(sorted_records)
-    p84_threshold = sorted_records[int(n * 0.84)]["account_influence"] if n >= 5 else float("inf")
+    # 问题 4 修复：P84 用 np.percentile 线性插值，替代整数索引近似
+    if n >= 5:
+        scores = np.asarray(
+            [record["account_influence"] for record in sorted_records],
+            dtype=float,
+        )
+        p84_threshold = float(np.percentile(scores, 84))
+        if n < 30:
+            print(f"提示：样本量 n={n} 较小，P84 分级阈值可能不稳定。")
+    else:
+        p84_threshold = float("inf")
 
     tier_counts: dict[int, int] = {4: 0, 5: 0}
     for record in sorted_records:
@@ -511,7 +572,17 @@ def run_retier_command(args: argparse.Namespace) -> None:
     # 按 account_influence 排序，计算 P84 单阈值
     sorted_records = sorted(records, key=lambda r: r["account_influence"])
     n = len(sorted_records)
-    p84_threshold = sorted_records[int(n * 0.84)]["account_influence"] if n >= 5 else float("inf")
+    # 问题 4 修复：P84 用 np.percentile 线性插值，替代整数索引近似
+    if n >= 5:
+        scores = np.asarray(
+            [record["account_influence"] for record in sorted_records],
+            dtype=float,
+        )
+        p84_threshold = float(np.percentile(scores, 84))
+        if n < 30:
+            print(f"提示：样本量 n={n} 较小，P84 分级阈值可能不稳定。")
+    else:
+        p84_threshold = float("inf")
 
     tier_counts: dict[int, int] = {4: 0, 5: 0}
     for record in sorted_records:
@@ -545,19 +616,34 @@ def _generate_calibration_yaml(
     num_seed_users: int,
     abm_population_size: int,
     calibrated_p_base: dict,
+    time_scale: float = 3600.0,
+    rounds: int = 24,
 ) -> str:
-    """在 portraits_dir 下生成 calibration_profile.yaml。"""
+    """在 portraits_dir 下生成 calibration_profile.yaml。
+
+    D-1：时间基准显式写入——system_time.time_scale=3600（每步 1 小时）、
+    runtime.rounds=24（总跨度 24 小时）。
+    """
     import yaml
 
     from core.calibration_profile import (
         CalibrationProfile,
         EmbeddingConfig,
+        ExperimentYamlConfig,
         MetaInfo,
         RecommenderConfig,
         RecommenderWeights,
     )
+    from core.experiment_config import RuntimeExperimentConfig, SystemTimeExperimentConfig
 
     profile = CalibrationProfile(
+        experiment=ExperimentYamlConfig(
+            system_time=SystemTimeExperimentConfig(
+                start_time="2026-05-17T12:00:00",
+                time_scale=time_scale,
+            ),
+            runtime=RuntimeExperimentConfig(rounds=rounds),
+        ),
         meta=MetaInfo(
             generated_at=datetime.now().isoformat(),
             portraits_dir=str(Path(portraits_dir).resolve()),
@@ -627,13 +713,15 @@ def run_recommender_command(args: argparse.Namespace) -> None:
     num_agents = _resolve_num_agents(args.num_agents, len(personas))
     print(f"ABM 规模: {num_agents} 人（种子 {len(personas)} 个用户画像）")
 
-    # 3. 初始化推理器
+    # 3. 初始化推理器（P2-E：固定随机种子保证可复现）
     inferer = RecommendationParameterInferer(
         num_agents=num_agents,
         min_scaled_target=args.min_scaled_target,
         embedding_model=args.embedding_model,
         n_cpu=args.n_cpu,
         target_size_for_sampling=num_agents,
+        random_seed=args.random_seed,
+        time_scale=args.time_scale,
     )
 
     # 4. 加载画像 → 语义处理 → 种群扩增
@@ -655,8 +743,14 @@ def run_recommender_command(args: argparse.Namespace) -> None:
         if personas:
             inferer.precompute_interests()
 
-        # 7. EM 校准
-        best_weights = inferer.run_em_calibration_loop(max_iterations=max_iterations)
+        # C-1：70/30 留出切分（EM 只用训练集，指标在验证集上算）
+        inferer.split_holdout(test_ratio=0.3)
+
+        # 7. EM 校准（含留出验证 / 消融 / 可选种子鲁棒性审计）
+        best_weights = inferer.run_em_calibration_loop(
+            max_iterations=max_iterations,
+            robustness_seeds=_parse_int_list(args.robustness_seeds) or None,
+        )
 
     result = {
         "input_meta": {
@@ -668,6 +762,16 @@ def run_recommender_command(args: argparse.Namespace) -> None:
             "num_seeds": len(personas),
             "embedding_model": args.embedding_model,
             "p_online": inferer.p_online,
+            "random_seed": args.random_seed,
+            "time_scale": args.time_scale,
+            "hours_per_step": args.time_scale / 3600.0,
+            "holdout_test_ratio": 0.3,
+            "robustness_seeds": _parse_int_list(args.robustness_seeds),
+            "trajectory_loss_available": any(
+                bool(story.get("repost_curve"))
+                for story in representative_stories.values()
+            ),
+            "env_versions": _collect_env_versions(),
         },
         "representative_stories": representative_stories,
         "calibrated_probs": inferer.calibrated_probs,
@@ -692,6 +796,8 @@ def run_recommender_command(args: argparse.Namespace) -> None:
             num_seed_users=len(personas),
             abm_population_size=num_agents,
             calibrated_p_base=inferer.calibrated_probs,
+            time_scale=args.time_scale,
+            rounds=args.rounds,
         )
 
 
@@ -748,6 +854,22 @@ def _resolve_recommender_input(
     )
 
 
+def _parse_int_list(value: str) -> list[int]:
+    """解析逗号分隔整数列表（如 CLI 的 --robustness-seeds）。"""
+    if not value or not value.strip():
+        return []
+    parsed: list[int] = []
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            parsed.append(int(item))
+        except ValueError as exc:
+            raise ValueError(f"无法解析整数列表：{value}") from exc
+    return parsed
+
+
 def _resolve_num_agents(cli_value: int | None, num_seeds: int) -> int:
     """根据 CLI 参数和种子数确定 ABM 规模。
 
@@ -766,9 +888,7 @@ def _build_portrait_source_from_excel(
     user_file: str,
     post_file: str,
 ) -> tuple[UserProfileSource, str]:
-    """按原有 Excel 数据结构提取单个用户的资料和帖子。"""
-    from analysis.user_portrait_generator import UserPost, UserProfileSource
-
+    """按原有 Excel 数据结构提取单个用户的资料和帖子（单用户模式入口）。"""
     user_path = data_path / user_file
     post_path = data_path / post_file
     user_rows = _load_tabular_rows(user_path)
@@ -785,7 +905,23 @@ def _build_portrait_source_from_excel(
         required_columns=PORTRAIT_POST_REQUIRED_COLUMNS,
         supported_columns=PORTRAIT_POST_SUPPORTED_COLUMNS,
     )
+    return _build_portrait_source_from_rows(
+        user_rows=user_rows,
+        post_rows=post_rows,
+        user_name=user_name,
+    )
 
+
+def _build_portrait_source_from_rows(
+    user_rows: list[dict[str, Any]],
+    post_rows: list[dict[str, Any]],
+    user_name: str,
+) -> tuple[UserProfileSource, str]:
+    """从已读入内存的用户表/帖子表构建单用户画像来源（线性匹配版本）。
+
+    批量模式请先用 _build_portrait_user_indexes 建索引，再调用
+    _build_portrait_source_from_matched（B-1 / R4：循环内 O(1) 查表）。
+    """
     target_name = _normalize_username(user_name)
     if not target_name:
         raise ValueError("user_name 不能为空。")
@@ -797,16 +933,56 @@ def _build_portrait_source_from_excel(
     ]
     user_row = _select_best_user_row(matched_user_rows)
     if user_row is None:
-        raise ValueError(f"在 {user_path} 中找不到用户：{user_name}")
+        raise ValueError(f"在用户表中找不到用户：{user_name}")
 
-    canonical_user_name = _normalize_scalar(user_row.get("用户名")) or user_name
     matched_posts = [
         row
         for row in post_rows
         if _normalize_username(row.get("用户名")) == target_name
     ]
+    return _build_portrait_source_from_matched(
+        user_row=user_row,
+        matched_posts=matched_posts,
+        user_name=user_name,
+    )
+
+
+def _build_portrait_user_indexes(
+    user_rows: list[dict[str, Any]],
+    post_rows: list[dict[str, Any]],
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]]]:
+    """按规范化用户名对用户表/帖子表各建一次索引（B-1 / R4）。
+
+    返回 (users_by_name, posts_by_user)，批量循环内 O(1) 查表，
+    替代逐用户线性扫全表 + 逐行 normalize 的 O(N × 表大小) CPU 开销。
+    """
+    from collections import defaultdict
+
+    users_by_name: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in user_rows:
+        name = _normalize_username(row.get("用户名"))
+        if name:
+            users_by_name[name].append(row)
+
+    posts_by_user: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in post_rows:
+        name = _normalize_username(row.get("用户名"))
+        if name:
+            posts_by_user[name].append(row)
+    return dict(users_by_name), dict(posts_by_user)
+
+
+def _build_portrait_source_from_matched(
+    user_row: dict[str, Any],
+    matched_posts: list[dict[str, Any]],
+    user_name: str,
+) -> tuple[UserProfileSource, str]:
+    """从已匹配好的用户行与帖子子集构建画像来源（批量索引版核心）。"""
+    from analysis.user_portrait_generator import UserPost, UserProfileSource
+
+    canonical_user_name = _normalize_scalar(user_row.get("用户名")) or user_name
     if not matched_posts:
-        raise ValueError(f"在 {post_path} 中找不到用户 {user_name} 的帖子。")
+        raise ValueError(f"在帖子表中找不到用户 {user_name} 的帖子。")
 
     ordered_posts = sorted(
         matched_posts,
@@ -1106,6 +1282,33 @@ def _validate_recommender_meta(anchor_percentile: float, max_iterations: int) ->
         raise ValueError("anchor_percentile 必须在 (0, 1] 区间内。")
     if max_iterations <= 0:
         raise ValueError("max_iterations 必须大于 0。")
+
+
+def _collect_env_versions() -> dict[str, str]:
+    """收集关键依赖版本（P2-E 可复现存档）。"""
+    import numpy as np
+    import pandas as pd
+    import sklearn
+
+    versions: dict[str, str] = {
+        "python": os.sys.version.split()[0],
+        "numpy": np.__version__,
+        "pandas": pd.__version__,
+        "scikit-learn": sklearn.__version__,
+    }
+    try:
+        import optuna
+
+        versions["optuna"] = optuna.__version__
+    except ImportError:
+        pass
+    try:
+        import sentence_transformers
+
+        versions["sentence-transformers"] = sentence_transformers.__version__
+    except ImportError:
+        pass
+    return versions
 
 
 

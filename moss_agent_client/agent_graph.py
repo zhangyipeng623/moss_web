@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Optional
 
 from langchain_openai import ChatOpenAI
 
+from core.experiment_config import MemoryExperimentConfig
 from moss_agent_client.agent import MossAgent
 from moss_agent_client.agent_logger import logger
 from moss_agent_client.remote_platform import RemotePlatform
@@ -17,6 +18,7 @@ class AgentGraph:
         global_event: str,
         system_time_config: SystemTimeConfig,
         llm: Optional[ChatOpenAI] = None,
+        memory_config: Optional[MemoryExperimentConfig] = None,
     ):
         """
         Initialize the AgentGraph.
@@ -24,12 +26,14 @@ class AgentGraph:
         :param platform: The RemotePlatform instance used for communication.
         :param global_event: The global event context for the agents.
         :param llm: The Language Model instance to be used by agents.
+        :param memory_config: 记忆系统参数（来自 YAML simulation.memory 段）。
         """
         self.platform = platform
         self.global_event = global_event
         self.llm = llm
         self._agents: List[MossAgent] = []
         self.system_time_config = system_time_config
+        self.memory_config = memory_config
 
     def add_agent(
         self,
@@ -38,6 +42,7 @@ class AgentGraph:
         bio: str,
         user_info: Optional[Dict[str, Any]] = None,
         user_info_template: Optional[str] = None,
+        profile_mode: str = "default",
     ) -> MossAgent:
         """
         Create and add a new agent to the graph.
@@ -47,6 +52,7 @@ class AgentGraph:
         :param bio: The biography of the agent.
         :param user_info: Optional user information dictionary.
         :param user_info_template: Optional template for user profile generation.
+        :param profile_mode: default/custom/simple，决定画像模板分支（A-3）。
         :return: The created MossAgent instance.
         """
         if self.llm is None:
@@ -71,6 +77,8 @@ class AgentGraph:
             llm=self.llm,
             user_info=user_info,
             user_info_template=user_info_template,
+            profile_mode=profile_mode,
+            memory_config=self.memory_config,
         )
         self._agents.append(agent)
         logger.info(f"Added agent: {name} ({username})")

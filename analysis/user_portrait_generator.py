@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from statistics import mean
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
 
@@ -301,10 +302,13 @@ class SimulationUserProfile(BaseModel):
 class PortraitGenerationError(RuntimeError):
     """画像生成失败。"""
 
-    def __init__(self, stage_name: str, message: str):
+    def __init__(self, stage_name: str, message: str, retryable: bool = True):
         super().__init__(f"{stage_name}: {message}")
         self.stage_name = stage_name
         self.message = message
+        # LLM 解析/校验失败（空输出、非法 JSON、结构校验不过）默认可重试；
+        # 真正不可恢复的错误（如鉴权失败）可显式标记 retryable=False
+        self.retryable = retryable
 
 
 class UserPortraitGenerator:
@@ -320,6 +324,7 @@ class UserPortraitGenerator:
         max_high_impact_posts: int = 30,
         max_style_posts: int = 20,
         reference_timestamp: Optional[int] = None,
+        timezone_name: str = "Asia/Shanghai",
     ):
         self.post_influence_weights = {
             "post_like": 1.0,
@@ -340,6 +345,9 @@ class UserPortraitGenerator:
         self.max_high_impact_posts = max(5, max_high_impact_posts)
         self.max_style_posts = max(5, max_style_posts)
         self.reference_timestamp = int(reference_timestamp) if reference_timestamp else int(time.time())
+        # 问题 2：活跃时段/注册日期统一使用与参考时间一致的时区（默认东八区），
+        # 避免按 UTC 统计导致行为画像整体偏移约 8 小时
+        self.timezone = ZoneInfo(timezone_name)
 
     def analyze_stats(self, source: UserProfileSource) -> UserStats:
         """基于用户信息和帖子生成统计画像。"""
@@ -360,7 +368,7 @@ class UserPortraitGenerator:
 
         register_ts = self._safe_int(user_info.get("register_timestamp", 0))
         if register_ts > 0:
-            dt = datetime.fromtimestamp(register_ts, tz=timezone.utc)
+            dt = datetime.fromtimestamp(register_ts, tz=self.timezone)
             stats.register_date = int(f"{dt.year}{dt.month:02d}")
 
         stats.post_count = len(source.posts)
@@ -414,7 +422,7 @@ class UserPortraitGenerator:
                 stats.original_count += 1
 
             if post.timestamp > 0:
-                dt = datetime.fromtimestamp(post.timestamp, tz=timezone.utc)
+                dt = datetime.fromtimestamp(post.timestamp, tz=self.timezone)
                 stats.active_hour_statistic[dt.hour] = (
                     stats.active_hour_statistic.get(dt.hour, 0) + 1
                 )
@@ -583,7 +591,8 @@ class UserPortraitGenerator:
             if context.source.posts
             else 0.0
         )
-        coverage_score = min(1.0, 0.55 + observed_post_ratio * 0.45)
+        # 问题 5：覆盖分起点归零，真实反映证据比例，不凭空抬高到 0.55
+        coverage_score = min(1.0, observed_post_ratio)
         return EvidencePack(
             evidence_items=evidence_items,
             topic_candidates=sorted(
@@ -766,13 +775,28 @@ class UserPortraitGenerator:
         max_attempts: int = 3,
         **kwargs: Any,
     ) -> Any:
-        """阶段级重试：单阶段失败时只重试本阶段，不回退 pipeline。"""
+        """阶段级重试：单阶段失败时只重试本阶段，不回退 pipeline。
+
+        问题 1 修复：PortraitGenerationError（LLM 空输出/非法 JSON/结构校验失败）
+        同样参与阶段级重试，仅对 retryable=False 的不可恢复错误直接抛出。
+        修复前这些错误直接 re-raise，命令层只能整用户重跑全部 5 阶段。
+        """
         last_error = ""
         for attempt in range(1, max_attempts + 1):
             try:
                 return await coro_func(*args, **kwargs)
-            except PortraitGenerationError:
-                raise
+            except PortraitGenerationError as exc:
+                if not exc.retryable:
+                    raise
+                last_error = str(exc)
+                if attempt < max_attempts:
+                    logger.warning(
+                        "%s 第 %d/%d 次失败（可重试），重试中：%s",
+                        stage_name,
+                        attempt,
+                        max_attempts,
+                        last_error,
+                    )
             except Exception as exc:
                 last_error = str(exc)
                 if attempt < max_attempts:
@@ -1584,17 +1608,18 @@ class UserPortraitGenerator:
         values: Dict[str, Any],
         expected_keys: Sequence[str],
     ) -> Dict[str, float]:
-        """将概率字典规范化。"""
+        """将概率字典规范化。
+
+        问题 5：LLM 全 0（无信息）时保留 0，不伪造均匀分布——
+        下游按“未知偏好”处理（回退 tier 默认行为），而非假装均等偏好。
+        """
         normalized = {
             key: max(0.0, self._safe_float(values.get(key, 0.0)))
             for key in expected_keys
         }
         total = sum(normalized.values())
         if total <= 0:
-            if not expected_keys:
-                return {}
-            default_value = round(1.0 / len(expected_keys), 6)
-            return {key: default_value for key in expected_keys}
+            return {key: 0.0 for key in expected_keys}
         return {key: round(value / total, 6) for key, value in normalized.items()}
 
     def _fill_agent_profile_defaults(

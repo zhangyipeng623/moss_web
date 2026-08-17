@@ -265,6 +265,7 @@ class EventMemoryRecord:
     related_users: list[str] = field(default_factory=list)
     source_post_id: Optional[int] = None
     impact: str = ""
+    round_id: int = 0  # 记录创建时的轮次，用于检索评分的时间衰减
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -275,6 +276,7 @@ class EventMemoryRecord:
             "related_users": self.related_users,
             "source_post_id": self.source_post_id,
             "impact": self.impact,
+            "round_id": self.round_id,
         }
 
     @classmethod
@@ -290,6 +292,11 @@ class EventMemoryRecord:
         except (TypeError, ValueError):
             importance = 0.0
 
+        try:
+            round_id = int(payload.get("round_id", 0))
+        except (TypeError, ValueError):
+            round_id = 0
+
         return cls(
             time=str(payload.get("time") or ""),
             summary=str(payload.get("summary") or ""),
@@ -302,6 +309,7 @@ class EventMemoryRecord:
             ],
             source_post_id=parsed_post_id,
             impact=str(payload.get("impact") or ""),
+            round_id=round_id,
         )
 
 

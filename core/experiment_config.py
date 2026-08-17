@@ -50,6 +50,20 @@ class RuntimeExperimentConfig(BaseModel):
     random_seed: Optional[int] = None
 
 
+class MemoryExperimentConfig(BaseModel):
+    """Agent 记忆系统参数（来自 YAML simulation.memory 段）。
+
+    event_decay_lambda / context_boost_cap 为检索评分参数，
+    见 docs/plan/记忆系统优化方案.md。
+    """
+    short_term_max_rounds: int = Field(default=3, ge=1)
+    short_term_max_posts: int = Field(default=3, ge=1)
+    event_max_size: int = Field(default=50, ge=1)
+    step_retry_limit: int = Field(default=3, ge=1)
+    event_decay_lambda: float = Field(default=0.07, ge=0.0)
+    context_boost_cap: float = Field(default=0.3, ge=0.0)
+
+
 class ExperimentConfig(BaseModel):
     name: str
     description: str = ""
@@ -58,6 +72,7 @@ class ExperimentConfig(BaseModel):
     system_time: SystemTimeExperimentConfig
     runtime: RuntimeExperimentConfig = Field(default_factory=RuntimeExperimentConfig)
     portrait: PortraitConfig = Field(default_factory=PortraitConfig)
+    memory: MemoryExperimentConfig = Field(default_factory=MemoryExperimentConfig)
     agents: list[AgentConfig] = Field(default_factory=list)
     agents_csv: Optional[str] = None
 
