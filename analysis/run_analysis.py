@@ -667,7 +667,7 @@ def _generate_calibration_yaml(
 
     yaml_path = Path(portraits_dir) / "calibration_profile.yaml"
     yaml_content = yaml.safe_dump(
-        profile.model_dump(),
+        profile.model_dump(exclude_none=True),
         allow_unicode=True,
         default_flow_style=False,
         sort_keys=False,
@@ -679,6 +679,15 @@ def _generate_calibration_yaml(
         f"# 用途：唯一的模拟配置文件，包含离线校准结果 + 在线模拟全部参数\n"
         f"# 位置：{yaml_path}\n"
         f"# 使用：python main.py --config {yaml_path}\n"
+        f"#\n"
+        f"# 大小模型分层（可选）：在 experiment 段下补一段 llm_small 即可启用，\n"
+        f"# simple（mass 普通用户）将改用小模型；不写 llm_small 则全员回退大模型（对照组）：\n"
+        f"#   experiment:\n"
+        f"#     llm_small:\n"
+        f"#       model: Qwen2.5-7B-Instruct\n"
+        f"#       timeout: 180\n"
+        f"#       api_key_env: API_KEY_SMALL\n"
+        f"#       base_url_env: BASE_URL_SMALL\n"
         f"\n"
     )
     with open(yaml_path, "w", encoding="utf-8") as f:

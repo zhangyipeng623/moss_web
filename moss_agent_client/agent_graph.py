@@ -18,6 +18,7 @@ class AgentGraph:
         global_event: str,
         system_time_config: SystemTimeConfig,
         llm: Optional[ChatOpenAI] = None,
+        llm_small: Optional[ChatOpenAI] = None,
         memory_config: Optional[MemoryExperimentConfig] = None,
     ):
         """
@@ -25,12 +26,14 @@ class AgentGraph:
 
         :param platform: The RemotePlatform instance used for communication.
         :param global_event: The global event context for the agents.
-        :param llm: The Language Model instance to be used by agents.
+        :param llm: The Language Model instance to be used by agents（core 大模型）.
+        :param llm_small: 小模型（mass 普通用户），缺省 None 时全员回退大模型。
         :param memory_config: 记忆系统参数（来自 YAML simulation.memory 段）。
         """
         self.platform = platform
         self.global_event = global_event
         self.llm = llm
+        self.llm_small = llm_small
         self._agents: List[MossAgent] = []
         self.system_time_config = system_time_config
         self.memory_config = memory_config
@@ -62,6 +65,14 @@ class AgentGraph:
 
             self.llm = ChatOpenAI(model="gpt-4o")
 
+        # 大小模型分层：simple 用户（mass 普通用户）用小模型，其余（core）用大模型；
+        # llm_small 缺省为 None 时全员回退大模型（对照组）。
+        selected_llm = (
+            self.llm_small
+            if (profile_mode == "simple" and self.llm_small is not None)
+            else self.llm
+        )
+
         # Create a new RemotePlatform instance for each agent to ensure thread safety and state isolation
         # Note: With httpx.AsyncClient, we can share the client, but here we keep the pattern
         # of creating a wrapper, but reuse the underlying client.
@@ -74,14 +85,20 @@ class AgentGraph:
             nickname=name,
             bio=bio,
             global_event=self.global_event,
-            llm=self.llm,
+            llm=selected_llm,
             user_info=user_info,
             user_info_template=user_info_template,
             profile_mode=profile_mode,
             memory_config=self.memory_config,
         )
         self._agents.append(agent)
-        logger.info(f"Added agent: {name} ({username})")
+        model_name = getattr(selected_llm, "model_name", None) or getattr(
+            selected_llm, "model", "unknown"
+        )
+        logger.info(
+            f"Added agent: {name} ({username}) "
+            f"[profile_mode={profile_mode}, model={model_name}]"
+        )
         return agent
 
     async def execute_agent_action(

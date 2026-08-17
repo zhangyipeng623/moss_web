@@ -36,6 +36,7 @@ class ExperimentYamlConfig(BaseModel):
     description: str = ""
     global_event: str = ""
     llm: LLMConfig = Field(default_factory=lambda: LLMConfig(model="gpt-4o"))
+    llm_small: Optional[LLMConfig] = None
     agents_csv: str = "configs/experiments/default_agents.csv"
     portrait: PortraitConfig = Field(default_factory=PortraitConfig)
     system_time: SystemTimeExperimentConfig = Field(
@@ -122,6 +123,7 @@ class CalibrationProfile(BaseModel):
             description=exp.description,
             global_event=exp.global_event,
             llm=exp.llm,
+            llm_small=exp.llm_small,
             system_time=exp.system_time,
             runtime=exp.runtime,
             portrait=exp.portrait,

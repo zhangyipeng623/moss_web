@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import uvicorn
 
-from core.experiment_config import ExperimentConfig, load_experiment_config
+from core.experiment_config import ExperimentConfig, LLMConfig, load_experiment_config
 from core.calibration_profile import CalibrationProfile
 from core.runtime import (
     RunContext,
@@ -124,11 +124,42 @@ def start_backend(
     )
 
 
+def _build_llm(
+    llm_config: LLMConfig,
+    random_seed: int | None,
+    label: str,
+) -> "ChatOpenAI":
+    """根据 LLMConfig 构建 ChatOpenAI 实例（core 大模型 / mass 小模型共用）。
+
+    Part C 可复现性：temperature=0 固定采样；端点支持时附加固定 seed。
+    """
+    from langchain_openai import ChatOpenAI
+
+    llm_kwargs: dict = {
+        "model": llm_config.model,
+        "api_key": os.environ.get(llm_config.api_key_env),
+        "base_url": os.environ.get(llm_config.base_url_env),
+        "timeout": llm_config.timeout,
+        "temperature": 0.0,
+    }
+    if random_seed is not None:
+        llm_kwargs["seed"] = random_seed
+    try:
+        llm = ChatOpenAI(**llm_kwargs)
+    except Exception as exc:  # 端点不支持 seed 时降级为只固定 temperature
+        logger.warning(
+            f"ChatOpenAI({label}) 不支持 seed 参数，已降级（temperature=0 仍生效）：{exc}"
+        )
+        llm_kwargs.pop("seed", None)
+        llm = ChatOpenAI(**llm_kwargs)
+    logger.info(f"已构建 {label} 模型：{llm_config.model}")
+    return llm
+
+
 def start_agent(run_context: RunContext, experiment_data: dict, config_path: str):
     """启动 Agent 服务"""
     experiment = ExperimentConfig.model_validate(experiment_data)
     from moss_agent_client.remote_platform import RemotePlatform
-    from langchain_openai import ChatOpenAI
     from moss_agent_client.schemas import SystemTimeConfig
     from moss_agent_client.agent_graph import AgentGraph
     from core.agent_profile_resolver import resolve_agent_payloads
@@ -139,22 +170,11 @@ def start_agent(run_context: RunContext, experiment_data: dict, config_path: str
 
     platform = RemotePlatform(get_backend_base_url())
 
-    # Part C 可复现性：temperature=0 固定采样；端点支持时附加固定 seed
-    llm_kwargs: dict = {
-        "model": experiment.llm.model,
-        "api_key": os.environ.get(experiment.llm.api_key_env),
-        "base_url": os.environ.get(experiment.llm.base_url_env),
-        "timeout": experiment.llm.timeout,
-        "temperature": 0.0,
-    }
-    if experiment.runtime.random_seed is not None:
-        llm_kwargs["seed"] = experiment.runtime.random_seed
-    try:
-        llm = ChatOpenAI(**llm_kwargs)
-    except Exception as exc:  # 端点不支持 seed 时降级为只固定 temperature
-        logger.warning(f"ChatOpenAI 不支持 seed 参数，已降级（temperature=0 仍生效）：{exc}")
-        llm_kwargs.pop("seed", None)
-        llm = ChatOpenAI(**llm_kwargs)
+    # 大小模型分层：core 大模型始终构建；mass 小模型仅在配置 llm_small 时构建。
+    llm = _build_llm(experiment.llm, experiment.runtime.random_seed, "core")
+    llm_small = None
+    if experiment.llm_small is not None:
+        llm_small = _build_llm(experiment.llm_small, experiment.runtime.random_seed, "mass")
 
     system_time_config: SystemTimeConfig = SystemTimeConfig(
         mode=experiment.system_time.mode,
@@ -166,6 +186,7 @@ def start_agent(run_context: RunContext, experiment_data: dict, config_path: str
             platform,
             global_event=experiment.global_event,
             llm=llm,
+            llm_small=llm_small,
             system_time_config=system_time_config,
             memory_config=experiment.memory,
         )

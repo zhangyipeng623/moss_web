@@ -69,6 +69,7 @@ class ExperimentConfig(BaseModel):
     description: str = ""
     global_event: str
     llm: LLMConfig
+    llm_small: Optional[LLMConfig] = None
     system_time: SystemTimeExperimentConfig
     runtime: RuntimeExperimentConfig = Field(default_factory=RuntimeExperimentConfig)
     portrait: PortraitConfig = Field(default_factory=PortraitConfig)
