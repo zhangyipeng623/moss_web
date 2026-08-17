@@ -1,0 +1,60 @@
+# ABM 推荐参数反推与校准
+
+> 毕业设计项目：MOSS Web 社交媒体舆情模拟推演平台
+> 完成人：张艺鹏（个人完成）
+> 文档范围：用真实传播观测反推推荐权重的向量化 ABM + Optuna EM 引擎。
+
+## 1. 功能目标
+
+把推荐曝光抽象为兴趣 / 热度 / 时效 / 随机四个可解释维度，用真实内容传播观测（每条内容的观看量与转发量）反推四维权重的全局最优解，并输出 `calibration_profile.yaml` 供在线 Feed 排序使用。
+
+## 2. 输入
+
+`analysis.run_analysis recommender` 接收两类输入：
+
+- **内容观测表**（`--data-file`，xlsx/csv，或 `--input` 的 JSON）：每条内容含 `story_id`、`repost_count`（转发量，校准目标）、`view_count`（观看量，缩放锚点）；JSON 模式可附带 `text`（用于语义匹配）与 `repost_curve`（转发时间曲线，用于轨迹损失）。
+- **画像目录**（`--portraits-dir`）：`portrait --batch` 生成的画像 JSON，作为 ABM 的种子用户。
+
+## 3. 语义处理
+
+- `EmbeddingService` 懒加载 `SentenceTransformer`（默认 `BAAI/bge-m3`），编码画像立场/兴趣文本与内容文本。
+- `SemanticLoader` 把画像 JSON 转成立场标签、用户信息文本、话题与影响力（[recommender_parameter_inference.py](/Users/zhangyipeng/Documents/moss_web/analysis/recommender_parameter_inference.py:100)）。
+- `AutoCompass` 用 **Kernel PCA (RBF)** 把画像嵌入投影到一维立场轴，得到每位用户的立场坐标，结合话题嵌入计算内容兴趣匹配（[recommender_parameter_inference.py](/Users/zhangyipeng/Documents/moss_web/analysis/recommender_parameter_inference.py:152)）。
+
+## 4. 种群合成
+
+`PopulationSynthesizer` 把少量种子画像扩展为全量仿真种群：精英保留种子用户 + Zipf 影响力分布生成普通用户，规模按 `num_agents = 种子数 × 10`（基于 90:9:1 参与比例，可用 `--num-agents` 覆盖）。
+
+## 5. 向量化 ABM 引擎
+
+`VectorizedABMEngine` 每步对全体用户按四维打分（公式与在线 `core/scoring.py` 完全一致）决定是否传播内容，并支持 **Soft Backfire 信念更新**：立场冲突时，极端用户有一定概率反而强化原有立场（[recommender_parameter_inference.py](/Users/zhangyipeng/Documents/moss_web/analysis/recommender_parameter_inference.py:467)）。
+
+## 6. EM 校准
+
+`EMCalibrationEngine` 交替执行：
+
+- **E 步**：用 Optuna 对每条内容校准 `p_base`（基础传播概率）；
+- **M 步**：用 Optuna 搜索全局四维权重 `w_i / w_pop / w_time / w_rand`。
+
+目标是最小化“仿真转发量 vs 真实转发量”的损失（`story_loss`），可选叠加 `repost_curve` 的轨迹损失（DTW）。
+
+## 7. 验证与诊断
+
+`RecommendationParameterInferer` 内置：
+
+- **70/30 留出切分**（`split_holdout`）：EM 只在训练集校准，指标在验证集计算，防过拟合；
+- **消融实验**（`run_ablation`）：逐维去掉权重看指标退化；
+- **种子鲁棒性审计**（`run_seed_robustness`）：扰动随机种子重跑 M 步，报告权重均值/方差/极差。
+
+## 8. 输出
+
+`recommender` 输出两类产物：
+
+1. `analysis_outputs/recommender/<input>.json`：`best_weights`、`calibrated_probs`（每条内容 p_base）、`weight_fit_diagnostics`、输入元信息与环境版本；
+2. `calibration_profile.yaml`（生成于画像目录下）：把 `best_weights` 写入 `recommender.weights`（映射 `w_i→w_interest`、`w_pop→w_popularity`、`w_time→w_time`、`w_rand→w_random`）、`calibrated_p_base` 与 `fit_diagnostics`，成为在线推演的唯一配置源。
+
+## 9. 当前状态
+
+**已实现**：Optuna 真搜四维权重、tier 全链路打通、四维归一化、Kernel PCA 立场轴、种群合成、Soft Backfire 信念更新、70/30 留出 + 消融 + 种子鲁棒性、YAML 闭环生成。
+
+**待实现/待验证**：无画像模式的可执行降级、真实数据上的端到端实验验证（KS 分布检验、Spearman 秩相关、成本对比）。`w_time`/`decay_lambda` 因数据无时间信息属弱辨识参数，仅作正则、不作为校准结论汇报。

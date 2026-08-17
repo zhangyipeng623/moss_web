@@ -15,7 +15,7 @@ uv run python -m analysis.run_analysis recommender --data-file <xlsx文件> --po
 uv run python -m analysis.run_analysis retier --portraits-dir <画像目录>
 
 # 在线推演实验
-python main.py [--config configs/experiments/default.json]
+python main.py --config <path/to/calibration_profile.yaml>
 
 # 前端
 cd frontend && npm run dev       # 开发服务器（Vite）
@@ -51,7 +51,7 @@ cd frontend && npm run lint      # ESLint 检查
 
 ### 数据流转
 
-1. **离线**：原始 Excel 数据 → `portrait --batch` → 画像 JSON（含 `influence_tier` 3/4/5 分级）输出到 `analysis_outputs/portraits/`
+1. **离线**：原始 Excel 数据 → `portrait --batch` → 画像 JSON（含 `influence_tier` L4/L5 分级）输出到 `analysis_outputs/portraits/`
 2. **离线**：内容观测 Excel → `recommender` → 最优权重 JSON 输出到 `analysis_outputs/recommender/`
 3. **在线**：`main.py` 加载实验配置 → 启动 Backend + Agent → Agent 通过 `agents.csv` 读取画像 JSON → 对 Backend API 执行决策循环 → Feed 排序使用 `SocialRecSys`（SentenceTransformer 嵌入 + 加权打分）
 
@@ -61,7 +61,7 @@ Agent 通过 CSV 配置（`agents.csv`）消费预生成的画像 JSON，使用 
 
 ### 推荐服务（`backend/services/social_recsys.py`）
 
-使用 `SentenceTransformer("all-MiniLM-L6-v2")` 生成内容嵌入向量，通过 `sqlite-vec` 存储。Feed 排序综合四个加权分数：`W_CHRONO`（时间衰减）、`W_BELIEF`（立场/兴趣亲和度）、`W_POP`（热度）、`W_RAND`（探索噪声）。权重当前硬编码为常量，需在运行推荐参数反推后将 `best_weights` 按映射关系手动同步（`w_time→W_CHRONO`, `w_i→W_BELIEF`, `w_pop→W_POP`, `w_rand→W_RAND`）。
+使用 `SentenceTransformer` 生成内容嵌入向量（模型名由 YAML `embedding.model_name` 配置，默认 `BAAI/bge-m3`），通过 `sqlite-vec` 存储。Feed 排序综合四个加权分数：`W_CHRONO`（时间衰减）、`W_BELIEF`（立场/兴趣亲和度）、`W_POP`（热度）、`W_RAND`（探索噪声）。权重由 `calibration_profile.yaml` 经 `SocialRecSys.configure()` 自动注入，映射关系为 `w_time→W_CHRONO`, `w_i→W_BELIEF`, `w_pop→W_POP`, `w_rand→W_RAND`。
 
 ### Backend API 概览
 
@@ -77,7 +77,7 @@ Agent 通过 CSV 配置（`agents.csv`）消费预生成的画像 JSON，使用 
 
 ### 离线分析流水线详情
 
-**画像生成**（`analysis/user_portrait_generator.py`）对每个用户执行 5 阶段 LLM 流水线：(A) 并行分块证据抽取 → (B) 稳定画像（兴趣、立场、风格、角色）→ (C) 行为画像（活跃模式、动作概率、触发规则）→ (D) 单主人格 Agent 画像压缩 → (E) 模拟初始状态。每阶段独立重试（最多 3 次）。批量模式下，先预计算全部用户的 `account_influence`，按 P60/P90 百分位切分为 L3/L4/L5 三级，再调 LLM 生成画像并注入层级信息。
+**画像生成**（`analysis/user_portrait_generator.py`）对每个用户执行 5 阶段 LLM 流水线：(A) 并行分块证据抽取 → (B) 稳定画像（兴趣、立场、风格、角色）→ (C) 行为画像（活跃模式、动作概率、触发规则）→ (D) 单主人格 Agent 画像压缩 → (E) 模拟初始状态。每阶段独立重试（最多 3 次）。批量模式下，先预计算全部用户的 `account_influence`，按 P84 百分位切分为 L4/L5 两级，再调 LLM 生成画像并注入层级信息。
 
 **推荐参数反推**（`analysis/recommender_parameter_inference.py`）使用**向量化 ABM + Optuna EM**引擎（v8）：
 - 语义处理：Kernel PCA (RBF) 将用户画像嵌入投影到一维立场轴，结合话题嵌入计算兴趣匹配
