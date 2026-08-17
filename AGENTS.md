@@ -36,4 +36,4 @@ Python 使用 4 空格缩进，模块和函数采用 `snake_case`，类采用 `P
 
 根目录 `.env` 需提供 `API_KEY` 与 `BASE_URL`；`BACKEND_URL` 默认 `127.0.0.1`，`BACKEND_PORT` 默认 `8000`。离线流程顺序为 `portrait --batch`、`recommender` 生成 `calibration_profile.yaml`、再用该 YAML 运行 `main.py`。注意 `sqlite-vec` 依赖原生扩展，不同平台可能需要单独处理安装问题。
 
-推荐嵌入模型由 `calibration_profile.yaml` 的 `embedding.model_name` 统一配置（默认 `BAAI/bge-m3`），离线 `recommender` 与在线 `SocialRecSys` 必须使用同一模型，否则校准出的兴趣权重失效。推荐四维权重由 YAML 经 `SocialRecSys.configure()` 自动注入，无需手动同步。大小模型分层（core 大模型 + mass 小模型）方案见 `docs/plan/大小模型分层与模型配置方案.md`，尚未实现。
+推荐嵌入模型由 `calibration_profile.yaml` 的 `embedding.model_name` 统一配置（默认 `BAAI/bge-m3`），离线 `recommender` 与在线 `SocialRecSys` 必须使用同一模型，否则校准出的兴趣权重失效。推荐四维权重由 YAML 经 `SocialRecSys.configure()` 自动注入，无需手动同步。大小模型分层（core 大模型 + mass 小模型）已实现：`ExperimentConfig`/`ExperimentYamlConfig` 的 `llm_small` 段 → `AgentGraph.add_agent` 按 `profile_mode` 分流（simple → 小模型，default → 大模型）→ `main.py` 构建小模型；不写 `llm_small` 时全员回退大模型（对照组），小模型端点/密钥用 `.env` 的 `BASE_URL_SMALL`/`API_KEY_SMALL`。
