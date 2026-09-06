@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -45,7 +45,7 @@ def min_max_norm(values: np.ndarray, eps: float = 1e-8) -> np.ndarray:
 class EmbeddingService:
     """基于 SentenceTransformer 的文本嵌入服务。"""
 
-    def __init__(self, model_name: str = "BAAI/bge-m3"):
+    def __init__(self, model_name: str = "Alibaba-NLP/gte-multilingual-base"):
         self.model_name = model_name
         self._model = None
 
@@ -55,7 +55,7 @@ class EmbeddingService:
             from sentence_transformers import SentenceTransformer
 
             logger.info("加载嵌入模型: %s", self.model_name)
-            self._model = SentenceTransformer(self.model_name)
+            self._model = SentenceTransformer(self.model_name, trust_remote_code=True)
             self._model.eval()
             dim = self._model.get_sentence_embedding_dimension()
             logger.info("向量维度: %d", dim)
@@ -764,6 +764,62 @@ def _stable_rng_base(*parts: Any) -> int:
     return int(zlib.crc32(key))
 
 
+def _run_one_fixed_simulation(
+    engine: VectorizedABMEngine,
+    story: Dict[str, Any],
+    weights: Dict[str, float],
+    p_base: float,
+    duration: int,
+    n_repeats: int,
+    seed: int,
+) -> np.ndarray:
+    """固定参数下模拟单条内容，返回各次重复的终值。"""
+    i_pop = np.asarray(story["I_pop"])
+    decay_lambda = float(weights.get("decay_lambda", 0.5))
+    story_id = story.get("story_id", "")
+    rng_base = _stable_rng_base(seed, story_id)
+    finals: List[float] = []
+    for repeat in range(n_repeats):
+        repeat_rng = np.random.default_rng(rng_base + repeat * 100003)
+        hist, _ = engine.run_simulation(
+            weights, p_base, i_pop, duration=duration,
+            decay_lambda=decay_lambda, rng=repeat_rng,
+        )
+        finals.append(float(hist[-1]))
+    return np.asarray(finals, dtype=float)
+
+
+def run_fixed_simulations(
+    engine: VectorizedABMEngine,
+    stories: Sequence[Dict[str, Any]],
+    weights: Dict[str, float],
+    p_base: float,
+    *,
+    duration: int,
+    n_repeats: int,
+    seed: int,
+    n_cpu: int = 1,
+) -> np.ndarray:
+    """固定参数模拟：行按 stories 顺序、列按重复序号，返回终值。
+
+    稳定种子仅由实验种子与推文 ID 构成（不含模型名或 p_base）。
+    每次 run_simulation 都重置引擎状态，任务间互不污染。
+    """
+    if n_cpu <= 1:
+        results = [
+            _run_one_fixed_simulation(engine, story, weights, p_base, duration, n_repeats, seed)
+            for story in stories
+        ]
+    else:
+        results = Parallel(n_jobs=n_cpu)(
+            delayed(_run_one_fixed_simulation)(engine, story, weights, p_base, duration, n_repeats, seed)
+            for story in stories
+        )
+    if not results:
+        return np.empty((0, n_repeats), dtype=float)
+    return np.vstack(results)
+
+
 class EMCalibrationEngine:
     """使用 Optuna 进行 E-M 交替校准。"""
 
@@ -901,7 +957,6 @@ class EMCalibrationEngine:
         duration: int = 24,
         n_repeats: int = 5,
         n_trials: int = 50,
-        max_stories_per_trial: int = 20,
     ) -> Tuple[Dict[str, float], float, Dict[str, Any]]:
         """M 步：Optuna 直接搜索四个权重（P0-1），回填与最优 trial 严格一致。
 
@@ -919,16 +974,8 @@ class EMCalibrationEngine:
         story_count = len(self.stories)
         if story_count == 0:
             raise RuntimeError("没有可校准的内容（stories 为空）。")
-        sample_size = min(max_stories_per_trial, story_count)
-
-        # B-2：study 开始前固定一次抽样集，贯穿所有 trial——
-        # 避免不同 trial 在不同内容子集上评 loss 引入子集噪声
-        if sample_size >= story_count:
-            fixed_indices = list(range(story_count))
-        else:
-            fixed_indices = self._rng.choice(
-                story_count, size=sample_size, replace=False
-            ).tolist()
+        # 全量遍历：每个 trial 使用全部训练内容，不再抽样限流
+        fixed_indices = list(range(story_count))
 
         def objective(trial: optuna.Trial) -> float:
             params = {
@@ -960,7 +1007,7 @@ class EMCalibrationEngine:
         # 一致性验证：用 best_params 回填的权重 + 最优 trial 的采样集与 RNG 基
         # 精确重放——返回的 best_weights 与 study.best_value 必须严格对应（P0-1）
         best_indices = study.best_trial.user_attrs.get("sample_indices") or list(
-            range(sample_size)
+            range(story_count)
         )
         verify_rng_base = _stable_rng_base(
             "mstep", study.best_trial.number, tuple(best_indices)
@@ -979,7 +1026,7 @@ class EMCalibrationEngine:
             "best_trial_number": int(study.best_trial.number),
             "sampler": type(study.sampler).__name__,
             "n_repeats": n_repeats,
-            "sample_size": sample_size,
+            "sample_size": story_count,
             "story_count": story_count,
             "fixed_sample_indices": [int(i) for i in fixed_indices],
             "trajectory_loss_used": any(
@@ -999,7 +1046,6 @@ class EMCalibrationEngine:
         weights: Dict[str, float],
         duration: int = 24,
         n_repeats: int = 5,
-        max_stories: int = 20,
     ) -> Dict[str, Any]:
         """消融实验（P1-B）：依次去掉某一维权重，观察损失退化。
 
@@ -1008,13 +1054,8 @@ class EMCalibrationEngine:
         """
         logger.info("  [Ablation] 逐维消融验证各权重贡献...")
         story_count = len(self.stories)
-        sample_size = min(max_stories, story_count)
-        if sample_size >= story_count:
-            indices = list(range(story_count))
-        else:
-            indices = self._rng.choice(
-                story_count, size=sample_size, replace=False
-            ).tolist()
+        # 全量遍历：消融评估同样使用全部内容，不抽样限流
+        indices = list(range(story_count))
 
         base_rng = _stable_rng_base("ablation-base", tuple(indices))
         base_loss, _ = self._evaluate_weights(
@@ -1092,6 +1133,203 @@ class EMCalibrationEngine:
             logger.info("  >>> Global MRE: %.4f", loss)
         return weights, {"iterations": iteration_diagnostics}
 
+    def _global_count_loss(
+        self,
+        p_base: float,
+        weights: Dict[str, float],
+        *,
+        duration: int,
+        n_repeats: int,
+        rng_base: int,
+    ) -> float:
+        """统一缩放计数损失：mean_i(mean_r(|final - scaled_target| / N))。
+
+        所有训练内容等权，每次评估完整遍历全部 stories，不使用轨迹损失。
+        每条内容与重复序号使用稳定种子（不含 trial 号），同一参数下损失确定。
+        """
+        if not self.stories:
+            raise RuntimeError("没有可校准的内容（stories 为空）。")
+        decay_lambda = float(weights.get("decay_lambda", 0.5))
+        losses: List[float] = []
+        for offset, story in enumerate(self.stories):
+            i_pop = np.asarray(story["I_pop"])
+            target = float(story.get("scaled_target", 0.0))
+            story_rng_base = rng_base + offset * 1000003
+            finals: List[float] = []
+            for repeat in range(n_repeats):
+                repeat_rng = np.random.default_rng(story_rng_base + repeat * 100003)
+                hist, _ = self.engine.run_simulation(
+                    weights, p_base, i_pop, duration=duration,
+                    decay_lambda=decay_lambda, rng=repeat_rng,
+                )
+                final = float(hist[-1])
+                if not np.isfinite(final):
+                    raise RuntimeError(
+                        f"仿真终值非有限：story={story.get('story_id', offset)}"
+                    )
+                finals.append(final)
+            per_story = float(np.mean([abs(f - target) for f in finals])) / max(
+                self.engine.N, 1
+            )
+            losses.append(per_story)
+        return float(np.mean(losses))
+
+    def _optimize_p_base(
+        self,
+        weights: Dict[str, float],
+        duration: int,
+        n_repeats: int,
+        p_trials: int,
+        rng_base: int,
+    ) -> Tuple[float, float]:
+        """固定权重，优化公共基础概率 p_base。"""
+        import optuna
+
+        optuna.logging.set_verbosity(optuna.logging.ERROR)
+        logging.getLogger("optuna").setLevel(logging.ERROR)
+
+        def objective(trial: optuna.Trial) -> float:
+            p = trial.suggest_float("p_base", 0.001, 0.999)
+            return self._global_count_loss(
+                p, weights, duration=duration, n_repeats=n_repeats, rng_base=rng_base
+            )
+
+        study = optuna.create_study(
+            direction="minimize",
+            sampler=optuna.samplers.TPESampler(seed=self.seed),
+        )
+        study.optimize(objective, n_trials=p_trials, show_progress_bar=False)
+        return float(study.best_params["p_base"]), float(study.best_value)
+
+    def _optimize_weights(
+        self,
+        p_base: float,
+        duration: int,
+        n_repeats: int,
+        weight_trials: int,
+        rng_base: int,
+    ) -> Tuple[Dict[str, float], float]:
+        """固定公共概率，优化四维权重与衰减参数。"""
+        import optuna
+
+        optuna.logging.set_verbosity(optuna.logging.ERROR)
+        logging.getLogger("optuna").setLevel(logging.ERROR)
+
+        def objective(trial: optuna.Trial) -> float:
+            params = {
+                "w_i": trial.suggest_float("w_i", 0.0, 1.0),
+                "w_pop": trial.suggest_float("w_pop", 0.0, 1.0),
+                "w_time": trial.suggest_float("w_time", 0.0, 1.0),
+                "w_rand": trial.suggest_float("w_rand", 0.0, 1.0),
+                "decay_lambda": trial.suggest_float("decay_lambda", 0.01, 3.0, log=True),
+            }
+            weights = self._weights_from_trial_params(params)
+            if not weights:
+                return float("inf")
+            return self._global_count_loss(
+                p_base, weights, duration=duration, n_repeats=n_repeats, rng_base=rng_base
+            )
+
+        study = optuna.create_study(
+            direction="minimize",
+            sampler=optuna.samplers.TPESampler(seed=self.seed),
+        )
+        study.optimize(objective, n_trials=weight_trials, show_progress_bar=False)
+        best_weights = self._weights_from_trial_params(study.best_params)
+        if not best_weights:
+            raise RuntimeError("Optuna 搜索失败：所有 trial 的权重和均为 0。")
+        return best_weights, float(study.best_value)
+
+    @staticmethod
+    def _select_best_round(round_records: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+        """按损失选择最佳轮次（成对返回该轮的 p_base 与 weights）。"""
+        if not round_records:
+            raise RuntimeError("没有任何校准轮次记录。")
+        return min(round_records, key=lambda r: float(r["loss"]))
+
+    def run_global_calibration(
+        self,
+        iterations: int = 3,
+        duration: int = 24,
+        n_repeats: int = 5,
+        p_trials: int = 20,
+        weight_trials: int = 50,
+    ) -> Dict[str, Any]:
+        """公共概率与推荐参数的交替校准（全量训练）。
+
+        每轮先固定权重优化公共概率 p_base，再固定 p_base 优化四维权重与衰减；
+        两步共用同一缩放计数损失。返回全轮最佳成对参数，并按相同种子重放核对。
+        """
+        if iterations < 1:
+            raise ValueError("iterations 必须大于 0。")
+        if p_trials < 1 or weight_trials < 1:
+            raise ValueError("p_trials/weight_trials 必须大于 0。")
+        if n_repeats < 1:
+            raise ValueError("n_repeats 必须大于 0。")
+        if not self.stories:
+            raise RuntimeError("没有可校准的内容（stories 为空）。")
+
+        base_seed = self.seed if self.seed is not None else 0
+        rng_base = _stable_rng_base("global", base_seed)
+
+        weights: Dict[str, float] = {
+            "w_i": 0.35,
+            "w_pop": 0.25,
+            "w_time": 0.25,
+            "w_rand": 0.15,
+            "decay_lambda": 0.5,
+        }
+        p_base = 0.1
+        round_records: List[Dict[str, Any]] = []
+        for k in range(iterations):
+            t0 = time.time()
+            p_base, _ = self._optimize_p_base(
+                weights, duration, n_repeats, p_trials, rng_base
+            )
+            weights, _ = self._optimize_weights(
+                p_base, duration, n_repeats, weight_trials, rng_base
+            )
+            round_loss = self._global_count_loss(
+                p_base, weights, duration=duration, n_repeats=n_repeats, rng_base=rng_base
+            )
+            round_records.append(
+                {
+                    "iteration": k + 1,
+                    "p_base": float(p_base),
+                    "weights": dict(weights),
+                    "loss": float(round_loss),
+                    "n_stories": len(self.stories),
+                    "elapsed_seconds": time.time() - t0,
+                }
+            )
+            logger.info(
+                "  [Global] 第 %d 轮 loss=%.6f p_base=%.4f", k + 1, round_loss, p_base
+            )
+
+        best = self._select_best_round(round_records)
+        best_weights = dict(best["weights"])
+        best_p_base = float(best["p_base"])
+        replay_loss = self._global_count_loss(
+            best_p_base, best_weights, duration=duration, n_repeats=n_repeats, rng_base=rng_base
+        )
+        return {
+            "weights": best_weights,
+            "p_base_global": best_p_base,
+            "loss": float(best["loss"]),
+            "diagnostics": {
+                "rounds": round_records,
+                "best_iteration": int(best["iteration"]),
+                "best_loss": float(best["loss"]),
+                "replay_loss": float(replay_loss),
+                "loss_name": "mean_abs_scaled_count_error",
+                "n_stories": len(self.stories),
+                "population_size": int(self.engine.N),
+                "duration": int(duration),
+                "n_repeats": int(n_repeats),
+                "seed": base_seed,
+            },
+        }
+
 
 # ============================================================
 # 6. 推荐参数反推器（统一入口）
@@ -1110,7 +1348,7 @@ class RecommendationParameterInferer:
         num_agents: int = 1500,
         min_scaled_target: int = 5,
         p_online: float | Dict[int, float] = 0.1,
-        embedding_model: str = "BAAI/bge-m3",
+        embedding_model: str = "Alibaba-NLP/gte-multilingual-base",
         n_cpu: int = 4,
         target_size_for_sampling: Optional[int] = None,
         random_seed: Optional[int] = None,
@@ -1231,10 +1469,11 @@ class RecommendationParameterInferer:
         """根据观测数据筛选代表性内容，并缩放到 ABM 规模。"""
         records: List[Dict[str, Any]] = []
         for item in observations:
-            if hasattr(item, "__dict__"):
-                d = {k: v for k, v in item.__dict__.items() if not k.startswith("_")}
-            elif isinstance(item, dict):
+            if isinstance(item, dict):
                 d = dict(item)
+            elif is_dataclass(item):
+                # slots=True 的 dataclass 没有 __dict__，需用 asdict 展开
+                d = asdict(item)
             else:
                 continue
             records.append(d)
@@ -1243,6 +1482,26 @@ class RecommendationParameterInferer:
             records, anchor_percentile=anchor_percentile
         )
         return self.representative_stories
+
+    def load_prepared_stories(self, records: Sequence[Dict[str, Any]]) -> None:
+        """加载已准备的内容记录，建立全部故事映射，不筛选或切分。
+
+        输入来自数据包分区（train.json 的 records），每条含 story_id、text、
+        repost_count、view_count、scaled_target 等；配合 precompute_interests()
+        建立 I_pop 后即可用于公共概率全量校准。
+        """
+        self.representative_stories = {}
+        for record in records:
+            story_id = str(record["story_id"])
+            self.representative_stories[story_id] = {
+                "story_id": story_id,
+                "text": str(record.get("text", "")),
+                "repost_count": float(record.get("repost_count", 0.0)),
+                "view_count": float(record.get("view_count", 0.0)),
+                "scaled_target": float(record.get("scaled_target", 0.0)),
+                "unclipped_target": float(record.get("unclipped_target", 0.0)),
+                "target_clipped": bool(record.get("target_clipped", False)),
+            }
 
     def precompute_interests(self) -> None:
         """为每条代表性内容预计算全量种群兴趣向量。"""
@@ -1576,9 +1835,7 @@ class RecommendationParameterInferer:
             )
             for i, p in enumerate(holdout["p_base"]):
                 test_calibrator.story_params[i] = p
-            ablation_holdout = test_calibrator.run_ablation(
-                best_weights, max_stories=len(test_stories)
-            )
+            ablation_holdout = test_calibrator.run_ablation(best_weights)
 
         # C-5：种子扰动鲁棒性（可选，较耗时）
         robustness: Dict[str, Any] = {"available": False, "skipped": True}
@@ -1671,6 +1928,10 @@ def load_portraits_from_dir(portraits_dir: Path) -> List[Dict[str, Any]]:
                 profile = json.load(f)
         except Exception:
             logger.warning("跳过无法解析的文件: %s", json_path.name)
+            continue
+
+        # 跳过非画像 JSON（如 recommender 结果 content_observations.json）
+        if not isinstance(profile.get("stable_profile"), dict):
             continue
 
         persona = _portrait_to_persona(profile)
