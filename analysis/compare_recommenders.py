@@ -252,7 +252,7 @@ def compare_models(
         raise ValueError("p_base_grid 值必须在 [0.001, 0.999] 内。")
 
     model = _load_model(model_path)
-    test_partition, manifest = load_split(test_path, expected_split="test")
+    test_partition, _manifest = load_split(test_path, expected_split="test")
     test_records = test_partition["records"]
     if not test_records:
         raise ValueError("测试分区 records 为空。")
