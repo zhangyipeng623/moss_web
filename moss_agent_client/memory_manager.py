@@ -1,4 +1,5 @@
 import math
+from typing import Any
 
 from moss_agent_client.agent_logger import logger
 from moss_agent_client.memory import (
@@ -31,6 +32,7 @@ class MemoryManager:
         event_max_size: int = 50,
         event_decay_lambda: float = DEFAULT_EVENT_DECAY_LAMBDA,
         context_boost_cap: float = DEFAULT_CONTEXT_BOOST_CAP,
+        initial_state: dict[str, Any] | None = None,
     ):
         self.username = username
         self.static_context = static_context
@@ -42,7 +44,7 @@ class MemoryManager:
         self.context = AgentMemoryContext(
             static=static_context,
             short_term=ShortTermMemory(max_rounds=short_term_max_rounds),
-            state=AgentState(),
+            state=AgentState.from_dict(initial_state or {}),
             event_memory=EventMemory(max_size=event_max_size),
         )
 

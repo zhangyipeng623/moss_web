@@ -112,6 +112,9 @@ class MossAgent:
 
         self.llm = llm
         self.static_context = self._build_static_context()
+        # 从画像 simulation_init 注入 Agent 初始状态（情绪/目标/关注话题/立场摘要）
+        simulation_init = self.user_info.get("simulation_init")
+        initial_state = simulation_init if isinstance(simulation_init, dict) else None
         self.memory_manager = MemoryManager(
             username=self.username,
             static_context=self.static_context,
@@ -120,6 +123,7 @@ class MossAgent:
             event_max_size=memory_config.event_max_size,
             event_decay_lambda=memory_config.event_decay_lambda,
             context_boost_cap=memory_config.context_boost_cap,
+            initial_state=initial_state,
         )
         self.tools = self._create_tools()
         self.system_prompt = PromptBuilder.build_system_prompt(self.static_context)
@@ -195,10 +199,9 @@ class MossAgent:
                 raise ValueError(
                     f"Agent {self.username} 的固定画像模板缺少字段：{', '.join(missing_fields)}"
                 )
-            profile_text = FIXED_USER_INFO_TEMPLATE.format(
-                **self.user_info,
-                name=self.user_info.get("name") or self.nickname,
-            )
+            fmt = dict(self.user_info)
+            fmt.setdefault("name", self.nickname or self.username)
+            profile_text = FIXED_USER_INFO_TEMPLATE.format(**fmt)
         global_event_text = CURRENT_EVENT_TEMPLATE.format(
             global_event_description=self.global_event
         )

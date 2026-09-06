@@ -156,7 +156,13 @@ def _build_llm(
     return llm
 
 
-def start_agent(run_context: RunContext, experiment_data: dict, config_path: str):
+def start_agent(
+    run_context: RunContext,
+    experiment_data: dict,
+    config_path: str,
+    agent_concurrency: int = 30,
+    p_online: dict | None = None,
+):
     """启动 Agent 服务"""
     experiment = ExperimentConfig.model_validate(experiment_data)
     from moss_agent_client.remote_platform import RemotePlatform
@@ -189,6 +195,8 @@ def start_agent(run_context: RunContext, experiment_data: dict, config_path: str
             llm_small=llm_small,
             system_time_config=system_time_config,
             memory_config=experiment.memory,
+            max_concurrency=agent_concurrency,
+            p_online=p_online,
         )
         agent_payloads = await resolve_agent_payloads(
             experiment=experiment,
@@ -217,6 +225,14 @@ def parse_args():
         required=True,
         help="校准配置文件路径（calibration_profile.yaml）",
     )
+    parser.add_argument(
+        "--portraits-dir",
+        help=(
+            "画像目录（可选）：提供后自动将该目录下全部画像 JSON 注册为 Agent，"
+            "覆盖 YAML 中的 agents_csv。未提供时回退 YAML meta.portraits_dir，"
+            "再回退 agents_csv。"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -231,6 +247,32 @@ def main():
 
     # 从 YAML experiment 段提取实验配置
     experiment = calibration.to_experiment_config()
+
+    # 画像目录：优先 CLI --portraits-dir，其次 YAML meta.portraits_dir
+    portraits_dir = args.portraits_dir or calibration.meta.portraits_dir
+    if portraits_dir:
+        from core.agent_profile_resolver import build_agents_from_portraits_dir
+
+        try:
+            experiment.agents = build_agents_from_portraits_dir(portraits_dir)
+            # 保留 experiment.agents_csv：画像目录提供 L4/L5（default 模式），
+            # agents_csv 可额外提供 L1-L3（simple 模式）低影响力用户，两者合并加载。
+            logger.info(f"已从画像目录加载 {len(experiment.agents)} 个 Agent：{portraits_dir}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"从画像目录加载 Agent 失败，回退 agents_csv：{exc}")
+
+    # L1-L3 动态抽取：按 Rogers 比例从候选池随机抽取大众用户（simple 模式）
+    pool = calibration.simulation.l1_l3_pool
+    if pool.enabled:
+        from core.agent_profile_resolver import build_l1_l3_agents_from_pool
+
+        n_l45 = len(experiment.agents)
+        try:
+            l1_l3 = build_l1_l3_agents_from_pool(pool, n_l45)
+            experiment.agents.extend(l1_l3)
+            logger.info(f"从候选池抽取 L1-L3 用户 {len(l1_l3)} 个（L4+L5={n_l45}）")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"从候选池抽取 L1-L3 失败，跳过：{exc}")
 
     # 注入推荐服务参数（替代硬编码常量）
     SocialRecSys.configure(calibration.recommender, calibration.embedding)
@@ -256,7 +298,13 @@ def main():
     )
     agent_process = multiprocessing.Process(
         target=start_agent,
-        args=(run_context, experiment.model_dump(), str(Path(args.config).resolve())),
+        args=(
+            run_context,
+            experiment.model_dump(),
+            str(Path(args.config).resolve()),
+            calibration.simulation.agent_concurrency,
+            calibration.simulation.p_online,
+        ),
         name="Agent",
     )
 

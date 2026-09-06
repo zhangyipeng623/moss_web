@@ -12,33 +12,44 @@ interface PostDetailProps {
 
 export function PostDetail({ systemTime }: PostDetailProps) {
     const { id } = useParams<{ id: string }>();
+    const postId = id ? parseInt(id, 10) : null;
+
     const [post, setPost] = useState<Post | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(postId !== null);
+    const [error, setError] = useState<string | null>(postId === null ? '帖子 ID 无效' : null);
+
+    // 帖子 ID 变化时，在渲染阶段重置状态（React 推荐写法，避免 effect 内同步 setState）
+    const [prevPostId, setPrevPostId] = useState<number | null>(postId);
+    if (prevPostId !== postId) {
+        setPrevPostId(postId);
+        setPost(null);
+        setIsLoading(postId !== null);
+        setError(postId === null ? '帖子 ID 无效' : null);
+    }
 
     useEffect(() => {
-        if (!id) {
-            setError('帖子 ID 无效');
-            setIsLoading(false);
-            return;
-        }
+        if (postId === null) return;
 
-        setIsLoading(true);
-        setError(null);
-
-        getPostDetail(parseInt(id, 10))
+        let cancelled = false;
+        getPostDetail(postId)
             .then(data => {
-                setPost(data);
+                if (!cancelled) setPost(data);
             })
             .catch(err => {
                 console.error(err);
-                setPost(null);
-                setError('帖子加载失败');
+                if (!cancelled) {
+                    setPost(null);
+                    setError('帖子加载失败');
+                }
             })
             .finally(() => {
-                setIsLoading(false);
+                if (!cancelled) setIsLoading(false);
             });
-    }, [id]);
+
+        return () => {
+            cancelled = true;
+        };
+    }, [postId]);
 
     if (isLoading) {
         return <div className="flex justify-center p-10"><Loader2 className="animate-spin" /></div>;

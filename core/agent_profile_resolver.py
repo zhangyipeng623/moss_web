@@ -26,6 +26,12 @@ async def resolve_agent_payloads(
         )
     )
 
+    if not agent_configs:
+        raise ValueError(
+            "实验未配置任何 Agent：请提供画像目录（--portraits-dir）、"
+            "或配置 agents_csv，或启用 simulation.l1_l3_pool。"
+        )
+
     resolved_payloads: list[dict[str, Any]] = []
     for agent in agent_configs:
         user_info = _resolve_user_info(
@@ -217,3 +223,108 @@ def _normalize_csv_paths(
             continue
         normalized[field_name] = str((csv_base_dir / path).resolve())
     return normalized
+
+
+def build_agents_from_portraits_dir(portraits_dir: str | Path) -> list[AgentConfig]:
+    """从画像目录批量构建 AgentConfig（供 main.py --portraits-dir 使用）。
+
+    目录下每个画像 JSON 映射为一个 default 模式的 Agent：
+    username=user_id，name=昵称，bio=简介，profile_path=画像文件绝对路径，
+    tier=influence_tier。非画像 JSON（如 failed_users.json、summary.json）自动跳过。
+    """
+    directory = Path(portraits_dir).resolve()
+    if not directory.is_dir():
+        raise FileNotFoundError(f"画像目录不存在：{directory}")
+
+    agents: list[AgentConfig] = []
+    for json_path in sorted(directory.glob("*.json")):
+        data = _load_json_object(json_path)
+        if not isinstance(data.get("stable_profile"), dict):
+            # 跳过非画像 JSON（failed_users.json、summary.json 等）
+            continue
+        stats = data.get("stats") or {}
+        user_id = data.get("user_id") or stats.get("username") or json_path.stem
+        nickname = stats.get("nickname") or user_id
+        bio = stats.get("description") or ""
+        tier = data.get("influence_tier")
+        if not isinstance(tier, int):
+            tier = 4
+        agents.append(
+            AgentConfig(
+                username=str(user_id),
+                name=str(nickname),
+                bio=str(bio),
+                profile_mode="default",
+                profile_path=str(json_path),
+                tier=tier,
+            )
+        )
+
+    if not agents:
+        raise ValueError(f"画像目录中没有可用的画像 JSON：{directory}")
+    return agents
+
+
+def build_l1_l3_agents_from_pool(pool_config: Any, n_l45: int) -> list[AgentConfig]:
+    """从候选池按 Rogers 比例随机抽取 L1-L3 simple 用户。
+
+    pool_config：L1L3PoolConfig（simulation.l1_l3_pool）；
+    n_l45：当前 L4+L5 画像数量，作为比例锚点。
+
+    候选池 CSV 需含 username/name/bio/followers（可选 verified）列。
+    """
+    if not getattr(pool_config, "enabled", False) or not getattr(pool_config, "csv_path", ""):
+        return []
+
+    import random
+
+    import pandas as pd
+
+    csv_path = Path(pool_config.csv_path)
+    if not csv_path.exists():
+        raise FileNotFoundError(f"L1-L3 候选池文件不存在：{csv_path}")
+
+    # Rogers 比例：以 L4+L5（ratio_l45）为锚反推各层数量
+    scale = n_l45 / max(float(pool_config.ratio_l45), 1e-9)
+    counts = {
+        1: max(0, round(scale * float(pool_config.ratio_l1))),
+        2: max(0, round(scale * float(pool_config.ratio_l2))),
+        3: max(0, round(scale * float(pool_config.ratio_l3))),
+    }
+
+    usecols = ["username", "name", "bio", "followers"]
+    if pool_config.exclude_verified:
+        usecols.append("verified")
+    df = pd.read_csv(csv_path, usecols=usecols)
+    df["followers"] = pd.to_numeric(df["followers"], errors="coerce").fillna(0)
+    df = df[df["bio"].notna() & (df["bio"].astype(str).str.strip() != "")]
+    if pool_config.exclude_verified and "verified" in df.columns:
+        df = df[~df["verified"].astype(bool)]
+
+    bins = {
+        1: tuple(pool_config.l1_followers),
+        2: tuple(pool_config.l2_followers),
+        3: tuple(pool_config.l3_followers),
+    }
+
+    rng = random.Random(pool_config.seed)
+    agents: list[AgentConfig] = []
+    for tier in (1, 2, 3):
+        lo, hi = bins[tier]
+        sub = df[(df["followers"] >= lo) & (df["followers"] < hi)]
+        n = counts[tier]
+        if sub.empty or n <= 0:
+            continue
+        n_take = min(n, len(sub))
+        chosen = sub.sample(n=n_take, random_state=rng.randint(0, 2**31 - 1))
+        for _, row in chosen.iterrows():
+            agents.append(
+                AgentConfig(
+                    username=str(row["username"]),
+                    name=str(row["name"]),
+                    bio=str(row["bio"]),
+                    profile_mode="simple",
+                    tier=tier,
+                )
+            )
+    return agents

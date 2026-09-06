@@ -7,8 +7,8 @@ export const api = axios.create({
     baseURL: API_BASE_URL,
 });
 
-export const getPosts = async (limit: number = 20, offset: number = 0) => {
-  const response = await api.get<Post[]>(`/posts`, { params: { limit, offset } });
+export const getPosts = async (limit: number = 20, offset: number = 0, sort: string = 'new') => {
+  const response = await api.get<Post[]>(`/posts`, { params: { limit, offset, sort } });
   return response.data;
 };
 

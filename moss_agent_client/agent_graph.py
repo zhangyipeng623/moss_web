@@ -1,4 +1,5 @@
 import asyncio
+import random
 import time
 from typing import List, Dict, Any, Optional
 
@@ -20,6 +21,8 @@ class AgentGraph:
         llm: Optional[ChatOpenAI] = None,
         llm_small: Optional[ChatOpenAI] = None,
         memory_config: Optional[MemoryExperimentConfig] = None,
+        max_concurrency: int = 30,
+        p_online: Optional[Dict[int, float]] = None,
     ):
         """
         Initialize the AgentGraph.
@@ -37,6 +40,8 @@ class AgentGraph:
         self._agents: List[MossAgent] = []
         self.system_time_config = system_time_config
         self.memory_config = memory_config
+        self.max_concurrency = max_concurrency
+        self.p_online = p_online or {}
 
     def add_agent(
         self,
@@ -210,30 +215,60 @@ class AgentGraph:
     async def step_all(self):
         """
         Execute one step for all agents concurrently.
+
+        先按 tier 唤醒概率（p_online）筛选本轮活跃 Agent，不活跃的跳过（不调 LLM）；
+        再用信号量限制并发，避免打爆模型端点；
+        单个 Agent 失败不再中止整个实验，仅记录并留待下一轮重试。
         """
         logger.info("Executing step for all agents...")
         if not self._agents:
             return
 
-        tasks = [agent.step() for agent in self._agents]
+        active_agents = self._agents
+        if self.p_online:
+            active_agents = [
+                agent
+                for agent in self._agents
+                if random.random() < self.p_online.get(agent._resolve_tier(), 0.1)
+            ]
+            logger.info(
+                f"本轮唤醒 {len(active_agents)}/{len(self._agents)} 个 Agent"
+            )
+
+        if not active_agents:
+            logger.info("本轮无 Agent 被唤醒，跳过。")
+            return
+
+        sem = asyncio.Semaphore(max(1, self.max_concurrency))
+
+        async def _step_one(agent: MossAgent):
+            async with sem:
+                return await agent.step()
+
+        tasks = [_step_one(agent) for agent in active_agents]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         failures = []
 
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                failures.append((self._agents[i].nickname, result))
+                failures.append((active_agents[i].nickname, result))
                 logger.error(
-                    f"Error during agent {self._agents[i].nickname} step: {result}"
+                    f"Error during agent {active_agents[i].nickname} step: {result}"
                 )
 
         if failures:
-            failure_messages = [
-                f"{nickname}: {error}" for nickname, error in failures
-            ]
-            raise RuntimeError(
-                "以下 agent 在本轮执行失败，实验已中止以避免重复执行副作用动作："
-                + "；".join(failure_messages)
-            ) from failures[0][1]
+            if len(failures) == len(active_agents):
+                failure_messages = [
+                    f"{nickname}: {error}" for nickname, error in failures
+                ]
+                raise RuntimeError(
+                    "全部活跃 agent 在本轮执行失败，实验已中止："
+                    + "；".join(failure_messages)
+                ) from failures[0][1]
+            logger.warning(
+                f"本轮 {len(failures)}/{len(active_agents)} 个活跃 agent 执行失败"
+                f"（多为连接错误），已跳过，下一轮继续重试。"
+            )
 
         logger.info("Step execution completed.")
 

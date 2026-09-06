@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 
 logger = logging.getLogger(__name__)
-LlmCallable = Callable[[str, str], Awaitable[Dict[str, Any]]]
+LlmCallable = Callable[..., Awaitable[Dict[str, Any]]]
 
 
 @dataclass(slots=True)
@@ -267,6 +267,13 @@ class AgentProfile(BaseModel):
     current_goal_hint: str = ""
 
 
+class BehaviorAndAgentProfile(BaseModel):
+    """阶段 C+D 合并输出：行为画像与主人格摘要一次生成。"""
+
+    behavior_profile: BehaviorProfile = Field(default_factory=BehaviorProfile)
+    agent_profile: AgentProfile = Field(default_factory=AgentProfile)
+
+
 class SimulationInit(BaseModel):
     mood: str = ""
     emotion_reason: str = ""
@@ -512,6 +519,7 @@ class UserPortraitGenerator:
             raw_output = await llm_callable(
                 self.build_chunk_system_prompt(),
                 self.build_chunk_user_prompt(context, chunk_index, chunk_posts),
+                schema=ChunkObservation,
             )
             for field in (
                 "value_signals",
@@ -619,7 +627,10 @@ class UserPortraitGenerator:
         raw_output = await llm_callable(
             self.build_stable_profile_system_prompt(),
             self.build_stable_profile_user_prompt(context, evidence_pack),
+            schema=StableProfile,
         )
+        for field in ("long_term_interests", "content_topics", "uncertainties"):
+            self._sanitize_string_array_field(raw_output, field)
         stable_profile = self._validate_stage_output(
             raw_output,
             StableProfile,
@@ -667,7 +678,13 @@ class UserPortraitGenerator:
                 evidence_pack,
                 stable_profile,
             ),
+            schema=BehaviorProfile,
         )
+        return self._finalize_behavior_profile(raw_output)
+
+    def _finalize_behavior_profile(self, raw_output: Dict[str, Any]) -> BehaviorProfile:
+        """对阶段 C 原始输出做容错清洗、校验与裁剪。"""
+        self._sanitize_top_active_hours(raw_output)
         behavior_profile = self._validate_stage_output(
             raw_output,
             BehaviorProfile,
@@ -719,7 +736,23 @@ class UserPortraitGenerator:
                 stable_profile,
                 behavior_profile,
             ),
+            schema=AgentProfile,
         )
+        return self._finalize_agent_profile(
+            context=context,
+            stable_profile=stable_profile,
+            behavior_profile=behavior_profile,
+            raw_output=raw_output,
+        )
+
+    def _finalize_agent_profile(
+        self,
+        context: PortraitGenerationContext,
+        stable_profile: StableProfile,
+        behavior_profile: BehaviorProfile,
+        raw_output: Dict[str, Any],
+    ) -> AgentProfile:
+        """对阶段 D 原始输出做容错清洗、校验与兜底。"""
         agent_profile = self._validate_stage_output(
             raw_output,
             AgentProfile,
@@ -737,6 +770,43 @@ class UserPortraitGenerator:
             behavior_profile=behavior_profile,
             agent_profile=agent_profile,
         )
+
+    async def generate_behavior_and_agent_profile(
+        self,
+        context: PortraitGenerationContext,
+        evidence_pack: EvidencePack,
+        stable_profile: StableProfile,
+        llm_callable: LlmCallable,
+    ) -> tuple[BehaviorProfile, AgentProfile]:
+        """阶段 C+D：一次调用同时生成行为画像与主人格摘要。"""
+        raw_output = await llm_callable(
+            self.build_behavior_and_agent_profile_system_prompt(),
+            self.build_behavior_and_agent_profile_user_prompt(
+                context,
+                evidence_pack,
+                stable_profile,
+            ),
+            schema=BehaviorAndAgentProfile,
+        )
+        behavior_raw = (
+            raw_output.get("behavior_profile") if isinstance(raw_output, dict) else None
+        )
+        agent_raw = (
+            raw_output.get("agent_profile") if isinstance(raw_output, dict) else None
+        )
+        if not isinstance(behavior_raw, dict) or not isinstance(agent_raw, dict):
+            raise PortraitGenerationError(
+                "behavior_and_agent_profile",
+                "合并输出缺少 behavior_profile 或 agent_profile 字段。",
+            )
+        behavior_profile = self._finalize_behavior_profile(behavior_raw)
+        agent_profile = self._finalize_agent_profile(
+            context=context,
+            stable_profile=stable_profile,
+            behavior_profile=behavior_profile,
+            raw_output=agent_raw,
+        )
+        return behavior_profile, agent_profile
 
     async def generate_simulation_init(
         self,
@@ -757,6 +827,7 @@ class UserPortraitGenerator:
                 agent_profile,
                 global_event=global_event,
             ),
+            schema=SimulationInit,
         )
         simulation_init = self._validate_stage_output(
             raw_output,
@@ -834,21 +905,12 @@ class UserPortraitGenerator:
             evidence_pack,
             llm_callable,
         )
-        behavior_profile = await self._retry_stage(
-            "generate_behavior_profile",
-            self.generate_behavior_profile,
+        behavior_profile, agent_profile = await self._retry_stage(
+            "generate_behavior_and_agent_profile",
+            self.generate_behavior_and_agent_profile,
             context,
             evidence_pack,
             stable_profile,
-            llm_callable,
-        )
-        agent_profile = await self._retry_stage(
-            "generate_agent_profile",
-            self.generate_agent_profile,
-            context,
-            evidence_pack,
-            stable_profile,
-            behavior_profile,
             llm_callable,
         )
         simulation_init = await self._retry_stage(
@@ -984,6 +1046,11 @@ class UserPortraitGenerator:
                 "不能把某条帖子的短期情绪当成长期人格。",
                 "如果某结论缺少充分证据，请写 unknown 或放入 uncertainties。",
                 "输出必须是合法 JSON，键名使用英文，值说明使用中文简体。",
+                "",
+                "【类型约束 - 必须严格遵守】",
+                "long_term_interests / content_topics / uncertainties 必须是一维字符串数组（string[]），每个元素是纯文本字符串，绝对不能是对象（不能带 topic/confidence/evidence_ids/post_idx 等嵌套结构）。",
+                "  正确示例：long_term_interests: [\"韩国女团TWICE\", \"MLB棒球\"]；错误示例：[{\"topic\": \"TWICE\", \"post_idx\": 1}]。",
+                "value_anchors 是对象数组，每个元素含 topic/stance/confidence/evidence_ids 四个键；social_role / expression_style / demographics 是单层对象。",
             ]
         )
 
@@ -1043,6 +1110,12 @@ class UserPortraitGenerator:
                 "动作概率只能表示相对倾向，不能伪装成精确统计真值。",
                 "如果输入没有显式日志支持，请在 uncertainties 中标明限制。",
                 "输出必须是合法 JSON，键名使用英文，值说明使用中文简体。",
+                "",
+                "【类型约束 - 必须严格遵守】",
+                "top_active_hours 必须是一维整数数组（int[]），每个元素是 0-23 的整数，绝对不能是对象。",
+                "  正确示例：top_active_hours: [23, 20, 22]；错误示例：[{\"hour\": 23, \"description\": \"...\"}]。",
+                "preferred_content_type / likely_actions / evidence_ids / uncertainties 必须是一维字符串数组（string[]），每个元素是纯文本字符串，不能是对象。",
+                "action_preferences 的 post/comment/like/repost/quote 是 0-1 的小数；trigger_rules 是对象数组。",
             ]
         )
 
@@ -1137,6 +1210,97 @@ class UserPortraitGenerator:
         return "\n".join(
             [
                 "请将该用户收敛为一套稳定的主人格画像，用于后续模板注入。",
+                json.dumps(payload, ensure_ascii=False, indent=2),
+            ]
+        )
+
+    def build_behavior_and_agent_profile_system_prompt(self) -> str:
+        """构建阶段 C+D 合并的系统提示词。"""
+        return "\n".join(
+            [
+                "你是一位社交媒体行为建模与模拟设计专家。",
+                "请一次性输出两个对象：behavior_profile（行为模式画像）与 agent_profile（可直接驱动 Agent 的单主人格摘要）。",
+                "behavior_profile 重点说明该用户更可能如何发帖、评论、点赞、转发，以及什么情况下更活跃。",
+                "agent_profile 必须把稳定画像和行为画像收敛为单一、可驱动 Agent 的主人格摘要，不能输出多个子人格，也不能设计切换机制。",
+                "动作概率只能表示相对倾向，不能伪装成精确统计真值；若输入没有显式日志支持，请在 uncertainties 中标明限制。",
+                "输出必须是合法 JSON，键名使用英文，值说明使用中文简体。",
+                "",
+                "【类型约束 - 必须严格遵守】",
+                "top_active_hours 必须是一维整数数组（int[]），每个元素是 0-23 的整数，绝对不能是对象。",
+                "  正确示例：top_active_hours: [23, 20, 22]；错误示例：[{\"hour\": 23, \"description\": \"...\"}]。",
+                "preferred_content_type / likely_actions / evidence_ids / uncertainties / speaking_rules / action_rules / avoidance_rules / initial_focus_topics 必须是一维字符串数组（string[]），每个元素是纯文本字符串，不能是对象。",
+                "action_preferences 的 post/comment/like/repost/quote 是 0-1 的小数；trigger_rules 是对象数组。",
+            ]
+        )
+
+    def build_behavior_and_agent_profile_user_prompt(
+        self,
+        context: PortraitGenerationContext,
+        evidence_pack: EvidencePack,
+        stable_profile: StableProfile,
+    ) -> str:
+        """构建阶段 C+D 合并的用户提示词。"""
+        payload = {
+            "user_name": context.stats.username,
+            "stats_summary": self._build_stats_summary(context.stats),
+            "observed_data_scope": context.observed_data_scope,
+            "stable_profile": stable_profile.model_dump(),
+            "evidence_pack": evidence_pack.model_dump(),
+            "output_schema": {
+                "behavior_profile": {
+                    "activity_pattern": {
+                        "top_active_hours": [],
+                        "recent_activity_level": "",
+                        "posting_frequency_level": "",
+                    },
+                    "action_preferences": {
+                        "post": 0.0,
+                        "comment": 0.0,
+                        "like": 0.0,
+                        "repost": 0.0,
+                        "quote": 0.0,
+                    },
+                    "interaction_preferences": {
+                        "prefers_hot_topics": False,
+                        "prefers_followed_authors": False,
+                        "prefers_argumentative_threads": False,
+                    },
+                    "content_preferences": {
+                        "preferred_length": "",
+                        "preferred_content_type": [],
+                        "emotion_intensity": "",
+                        "stance_explicitness": "",
+                    },
+                    "trigger_rules": [
+                        {
+                            "condition": "",
+                            "likely_actions": [],
+                            "confidence": 0.0,
+                            "evidence_ids": [],
+                        }
+                    ],
+                    "profile_summary": "",
+                    "uncertainties": [],
+                },
+                "agent_profile": {
+                    "identity_summary": "",
+                    "interest_summary": "",
+                    "value_summary": "",
+                    "style_summary": "",
+                    "behavior_summary": "",
+                    "interaction_summary": "",
+                    "speaking_rules": [],
+                    "action_rules": [],
+                    "avoidance_rules": [],
+                    "initial_focus_topics": [],
+                    "current_goal_hint": "",
+                },
+            },
+        }
+        return "\n".join(
+            [
+                "请一次性输出 behavior_profile（行为模式画像）与 agent_profile（单主人格摘要）两个对象。",
+                "agent_profile 的 identity/interest/value/style/behavior/interaction 摘要需基于 stable_profile 与 behavior_profile 收敛为单一主人格，不得设计多子人格或切换机制。",
                 json.dumps(payload, ensure_ascii=False, indent=2),
             ]
         )
@@ -1566,6 +1730,7 @@ class UserPortraitGenerator:
                     or item.get("hint")
                     or item.get("value")
                     or item.get("text")
+                    or item.get("topic")
                     or ""
                 )
                 if text and isinstance(text, str):
@@ -1577,6 +1742,29 @@ class UserPortraitGenerator:
                             sanitized.append(v.strip())
                             break
         payload[field] = sanitized
+
+    @staticmethod
+    def _sanitize_top_active_hours(payload: Dict[str, Any]) -> None:
+        """兜底容错：将 top_active_hours 的对象数组降级为整数数组。
+
+        当 LLM 误将 int[] 字段输出为 [{hour: 23, description: ...}, ...] 时，
+        自动提取每个对象的 hour 值作为整数。
+        """
+        if not isinstance(payload, dict):
+            return
+        activity = payload.get("activity_pattern")
+        if not isinstance(activity, dict):
+            return
+        hours = activity.get("top_active_hours")
+        if not isinstance(hours, list):
+            return
+        sanitized: list[Any] = []
+        for item in hours:
+            if isinstance(item, dict):
+                sanitized.append(item.get("hour"))
+            else:
+                sanitized.append(item)
+        activity["top_active_hours"] = sanitized
 
     def _compute_post_influence(self, post: UserPost) -> float:
         """计算单条帖子的影响力。"""

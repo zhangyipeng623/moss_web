@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class LLMConfig(BaseModel):
@@ -76,12 +76,6 @@ class ExperimentConfig(BaseModel):
     memory: MemoryExperimentConfig = Field(default_factory=MemoryExperimentConfig)
     agents: list[AgentConfig] = Field(default_factory=list)
     agents_csv: Optional[str] = None
-
-    @model_validator(mode="after")
-    def validate_agent_sources(self) -> "ExperimentConfig":
-        if not self.agents and not self.agents_csv:
-            raise ValueError("实验配置必须至少提供 agents 或 agents_csv 之一。")
-        return self
 
 
 def load_experiment_config(config_path: str | Path) -> ExperimentConfig:

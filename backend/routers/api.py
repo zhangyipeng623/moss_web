@@ -83,8 +83,8 @@ async def get_feed(user_id: int, limit: int = 20):
 
 
 @router.get("/api/v1/posts", response_model=List[PostResponse])
-async def get_all_posts(limit: int = 20, offset: int = 0):
-    all_posts = await posts.get_all_posts(limit, offset)
+async def get_all_posts(limit: int = 20, offset: int = 0, sort: str = "new"):
+    all_posts = await posts.get_all_posts(limit, offset, sort)
     return all_posts
 
 

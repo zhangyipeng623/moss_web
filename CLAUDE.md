@@ -61,7 +61,7 @@ Agent 通过 CSV 配置（`agents.csv`）消费预生成的画像 JSON，使用 
 
 ### 推荐服务（`backend/services/social_recsys.py`）
 
-使用 `SentenceTransformer` 生成内容嵌入向量（模型名由 YAML `embedding.model_name` 配置，默认 `BAAI/bge-m3`），通过 `sqlite-vec` 存储。Feed 排序综合四个加权分数：`W_CHRONO`（时间衰减）、`W_BELIEF`（立场/兴趣亲和度）、`W_POP`（热度）、`W_RAND`（探索噪声）。权重由 `calibration_profile.yaml` 经 `SocialRecSys.configure()` 自动注入，映射关系为 `w_time→W_CHRONO`, `w_i→W_BELIEF`, `w_pop→W_POP`, `w_rand→W_RAND`。
+使用 `SentenceTransformer` 生成内容嵌入向量（模型名由 YAML `embedding.model_name` 配置，默认 `Alibaba-NLP/gte-multilingual-base`），通过 `sqlite-vec` 存储。Feed 排序综合四个加权分数：`W_CHRONO`（时间衰减）、`W_BELIEF`（立场/兴趣亲和度）、`W_POP`（热度）、`W_RAND`（探索噪声）。权重由 `calibration_profile.yaml` 经 `SocialRecSys.configure()` 自动注入，映射关系为 `w_time→W_CHRONO`, `w_i→W_BELIEF`, `w_pop→W_POP`, `w_rand→W_RAND`。
 
 ### Backend API 概览
 

@@ -28,7 +28,7 @@ class SocialRecSys:
     W_RAND: float = 0.2
     DECAY_LAMBDA: float = 0.5
     TIER_WEIGHT: Dict[int, float] = dict(TIER_WEIGHT_DEFAULT)
-    _embedding_model_name: str = "BAAI/bge-m3"
+    _embedding_model_name: str = "Alibaba-NLP/gte-multilingual-base"
     _normalize_embeddings: bool = True
 
     @classmethod
@@ -56,7 +56,9 @@ class SocialRecSys:
         if self._model is None:
             logger.info("Loading SentenceTransformer model...")
             # A-2：使用 configure() 注入的模型名，与离线 ABM 保持同一嵌入空间
-            self._model = SentenceTransformer(SocialRecSys._embedding_model_name)
+            self._model = SentenceTransformer(
+                SocialRecSys._embedding_model_name, trust_remote_code=True
+            )
             logger.info("Model loaded.")
         return self._model
 
@@ -153,9 +155,9 @@ class SocialRecSys:
                                 SELECT p.*, u.nickname as author_nickname, u.tier as author_tier
                                 FROM posts p
                                 JOIN users u ON p.user_id = u.id
-                                WHERE p.id IN ({placeholders})
+                                WHERE p.id IN ({placeholders}) AND p.user_id != ?
                             """,
-                                post_ids,
+                                (*post_ids, user_id),
                             ) as cursor:
                                 posts = [dict(row) for row in await cursor.fetchall()]
                     except Exception as e:
@@ -170,8 +172,9 @@ class SocialRecSys:
                     SELECT p.*, u.nickname as author_nickname, u.tier as author_tier
                     FROM posts p
                     JOIN users u ON p.user_id = u.id
+                    WHERE p.user_id != ?
                     ORDER BY p.created_at DESC, p.id DESC LIMIT 100
-                """) as cursor:
+                """, (user_id,)) as cursor:
                     posts = [dict(row) for row in await cursor.fetchall()]
 
             if not posts:

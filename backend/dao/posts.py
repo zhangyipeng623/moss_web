@@ -359,14 +359,39 @@ async def do_nothing(user_id: int) -> Dict[str, Any]:
     return {"status": "success", "message": "Did nothing"}
 
 
-async def get_all_posts(limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
+def _stats_field_expr(field: str) -> str:
+    """将 stats JSON 里的字段转成安全的 SQL 排序表达式（缺失字段回退 0）。"""
+    return f"COALESCE(CAST(json_extract(p.stats, '$.{field}') AS INTEGER), 0)"
+
+
+# 排序关键字 -> SQL ORDER BY 片段。关键字来自白名单，杜绝 SQL 注入。
+_SORT_ORDER_SQL = {
+    "new": "p.created_at DESC, p.id DESC",
+    "hot": (
+        f"({_stats_field_expr('like_count')} "
+        f"+ {_stats_field_expr('reply_count')} * 2 "
+        f"+ {_stats_field_expr('retweet_count')} * 3 "
+        f"+ {_stats_field_expr('quote_count')} * 2) DESC, p.id DESC"
+    ),
+    "reply": f"{_stats_field_expr('reply_count')} DESC, p.id DESC",
+    "like": f"{_stats_field_expr('like_count')} DESC, p.id DESC",
+    "retweet": f"{_stats_field_expr('retweet_count')} DESC, p.id DESC",
+    "quote": f"{_stats_field_expr('quote_count')} DESC, p.id DESC",
+    "share": f"{_stats_field_expr('share_count')} DESC, p.id DESC",
+}
+
+
+async def get_all_posts(
+    limit: int = 20, offset: int = 0, sort: str = "new"
+) -> List[Dict[str, Any]]:
+    order_by = _SORT_ORDER_SQL.get(sort, _SORT_ORDER_SQL["new"])
     async with get_db_connection() as db:
         async with db.execute(
-            """
+            f"""
             SELECT p.*, u.nickname as author_nickname, u.type as author_type
             FROM posts p
             JOIN users u ON p.user_id = u.id
-            ORDER BY p.created_at DESC, p.id DESC
+            ORDER BY {order_by}
             LIMIT ? OFFSET ?
             """,
             (limit, offset),
