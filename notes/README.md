@@ -9,7 +9,7 @@
 |---|---|---|
 | [数据准备](data-preparation/README.md) | in-progress | 公开数据转换与观测构建已有本地脚本，待验证产物口径 |
 | [用户画像](user-portraits/README.md) | in-progress | 画像生成、模式与分层已有实现，待验收当前修改 |
-| [推荐参数校准](recommender-calibration/README.md) | in-progress | ABM/EM、统一配置与评估已有实现，待数据级验证 |
+| [推荐参数校准](recommender-calibration/README.md) | proposed | 数据拆分、公共概率全量训练与对比实验方案已写，待 Design Review；既有 ABM 实现保留 |
 | [Agent 社交模拟](agent-simulation/README.md) | in-progress | 在线推荐、记忆和大小模型分流已有实现，待收口运行缺口 |
 | [研究验证](research-validation/README.md) | proposed | 汇总研究目标和证据边界，尚未形成获批实验方案 |
 
