@@ -146,101 +146,58 @@ agent_alpha,Alpha,我是军事议题分析用户,default,../../analysis_outputs/
 - `user_info_template`
 - 或 `user_info_template_path`
 
-### 2. 反推推荐系统参数
+### 2. 反推推荐系统参数（公共概率全量校准）
 
-命令示例：
+新版把筛选、训练、比较拆成三个独立入口，固定数据包与模型产物，训练不读取测试结果。
+
+**阶段 1：准备数据包**
 
 ```bash
-uv run python -m analysis.run_analysis recommender \
-  --data-file /path/to/post_original_4.xlsx \
-  --portraits-dir analysis_outputs/portraits/ \
-  --output analysis_outputs/recommender/post_original_4.json
+uv run python scripts/prepare_recommender_data.py --data-file data/posts.xlsx --text-column 正文 --num-agents 1500 --output-dir analysis_outputs/datasets/example
 ```
 
-如果不写 `--output`，默认输出到：
+产出 **train.json**、**test.json**、**manifest.json**。划分先于筛选：仅训练分区做转发量/浏览量/缩放目标过滤，测试分区保留零转发与低传播内容。默认 **--test-ratio 0.3**、**--random-seed 42**、**--selection all**（**stratified** 开启十档抽样）。
+
+**阶段 2：训练（产出可重建模型）**
+
+```bash
+uv run python -m analysis.run_analysis recommender --train-file analysis_outputs/datasets/example/train.json --portraits-dir analysis_outputs/portraits/ --output-dir analysis_outputs/calibration/example
+```
+
+产出 **model.json** 与 **calibration_profile.yaml**。训练只用训练分区拟合公共基础概率 **p_base_global** 与四维权重/衰减，全部训练推文全量参与，不读取测试文件。
+
+**阶段 3：同测试集比较**
+
+```bash
+uv run python -m analysis.compare_recommenders --model analysis_outputs/calibration/example/model.json --test-file analysis_outputs/datasets/example/test.json --baseline data/baseline.json --portraits-dir analysis_outputs/portraits/ --output-dir analysis_outputs/comparison/example
+```
+
+产出 **summary.json** 与 **per_story.csv**。比较模块不调用优化，两组共用同一模拟环境与 **p_base_global**，只替换系数。
+
+**旧命令迁移**：**--data-file**、**--input** 及筛选参数已停止接受训练，会返回迁移错误，例如：
 
 ```text
-analysis_outputs/recommender/<输入文件名>.json
+旧 recommender 参数（--data-file）已迁移：请先用 scripts/prepare_recommender_data.py 准备数据包，再用 --train-file 训练。
 ```
 
-#### 用户需要提供的输入结构
+**baseline.json 示例**：
 
-推荐参数脚本需要两类输入：
-
-1. **内容观测表**（`--data-file`）：支持 `.xlsx` 或 `.csv`，默认读取以下列：
-   - `文章ID`、`观看量`、`转发`、`分享`、`Quotes`
-   - 如列名不同，可通过 `--retweet-columns`、`--view-column`、`--id-column` 覆盖
-
-2. **用户画像目录**（`--portraits-dir`）：由 `portrait --batch` 生成的画像 JSON 目录，用于语义处理（立场轴计算、兴趣匹配）和种群扩增。种子用户代表总人口的 10%（对应 90:9:1 法则），ABM 规模自动按 `种子数 × 10` 计算。
-
-如果你的列名和默认值不同，可以显式覆盖：
-
-```bash
-uv run python -m analysis.run_analysis recommender \
-  --data-file /path/to/your_posts.xlsx \
-  --portraits-dir analysis_outputs/portraits/ \
-  --retweet-columns 转发数,分享数,引用数 \
-  --view-column 曝光量 \
-  --id-column 帖子ID
+```json
+{
+  "name": "另一系统",
+  "weights": {"w_interest": 0.4, "w_popularity": 0.3, "w_time": 0.2, "w_random": 0.1},
+  "decay_lambda": 0.5
+}
 ```
 
-常用可调参数：
+四项必须有限、非负、总和大于零，导入后归一化；省略 **decay_lambda** 时共用模型衰减（比较标签为“仅权重”）。
 
-- `--portraits-dir`
-  用户画像 JSON 目录路径，用于立场轴和兴趣匹配（推荐提供）
-- `--anchor-percentile`
-  鲁棒缩放锚点分位数，默认 `0.8`
-- `--max-iterations`
-  EM 校准最大迭代次数，默认 `3`
-- `--num-agents`
-  ABM 代理数，未指定时按 `种子数 × 10` 自动推算
-- `--min-scaled-target`
-  最小缩放目标，默认 `5`
-- `--embedding-model`
-  文本嵌入模型，默认 `BAAI/bge-m3`
-- `--n-cpu`
-  并行校准使用的 CPU 核心数，默认 `4`
+**指标与口径**：终点是缩放后的传播总量；**mae**/**rmse** 含零目标，**mre_nonzero**/**relative_pass_rate_nonzero** 只在非零目标上计算（全零为 null）。误差达标率不是推荐准确率；**mae_difference_ci95** 用 2000 次配对 bootstrap，只描述固定训练产物在当前采样下的不确定性。逐条 CSV 零目标相对误差留空，报告 **n_clipped**（人口上限截断数）。
 
-#### 新版流程说明
-
-新版采用**向量化 ABM + Optuna EM**引擎（对应 `social_recommender_system/test.py` v8），与旧版的关键差异：
-
-1. **语义处理**：使用 Kernel PCA (RBF) 将用户画像嵌入投影到一维立场轴，结合话题嵌入计算兴趣匹配度
-2. **种群合成**：种子用户（L3-L5）通过精英保留 + Zipf 影响力分布扩展为全量仿真种群，替代旧版的优先连接图
-3. **Soft Backfire**：信念更新引入回火效应 — 立场冲突时，极端用户有概率反而强化原有立场
-4. **Optuna 搜索**：E 步和 M 步均使用 Optuna 进行超参优化，替代旧版随机采样
-
-#### 生成结果如何具体使用
-
-输出文件中最重要的字段包括：
-
-- `representative_stories`
-- `calibrated_probs`（每条内容的 `p_base` 概率）
-- `best_weights`（`w_i`、`w_pop`、`w_time`、`w_rand`）
-- `weight_fit_diagnostics`
-
-当前系统运行时还不会自动加载这个结果文件，所以它的使用方式是手动同步：
-
-1. 打开生成结果中的 `best_weights`。
-2. 将权重映射到 [social_recsys.py](/Users/zhangyipeng/ZYPRoom/cuc/project/moss_web/backend/services/social_recsys.py) 顶部的权重常量：
-
-| best_weights 字段 | 对应常量 | 含义 |
-|-------------------|----------|------|
-| `w_i` | `W_BELIEF` | 兴趣/立场匹配度 |
-| `w_pop` | `W_POP` | 源用户影响力 |
-| `w_time` | `W_CHRONO` | 时间衰减 |
-| `w_rand` | `W_RAND` | 随机探索 |
+**研究限制**：公共概率与权重会相互补偿，比较限于同一 ABM；训练筛选偏向有传播内容，测试保留低传播内容；只有横截面总量时时间参数继续作为拟合参数，不声称辨识真实时间机制；参数替换不等于真实系统的因果效果。
 
 ## 与运行系统的关系
 
-当前的推荐用法是：
-
-- 画像脚本生成 `portrait JSON`
-- 运行系统通过 `agents.csv` 的 `profile_mode=default` 和 `profile_path` 消费画像
-- 推荐参数脚本生成 `recommender JSON`
-- 运行系统目前需要手动把 `best_weights` 同步到推荐服务代码
-
-也就是说：
-
-- 脚本本身是离线工具
-- 生成的数据才是运行系统真正消费的输入
+- 画像脚本生成画像 JSON，运行系统通过 **agents.csv** 的 **profile_mode=default** + **profile_path** 消费。
+- 训练脚本生成 **model.json**（比较的权威产物）与 **calibration_profile.yaml**（供 **main.py --config** 加载）。
+- 在线推荐服务仍只消费现有配置字段；公共概率不改变在线动作语义。
