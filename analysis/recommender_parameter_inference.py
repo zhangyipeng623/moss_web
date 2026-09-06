@@ -21,6 +21,7 @@ from core.scoring import (
     time_decay_score,
     weighted_score,
 )
+from analysis.recommender_data import file_sha256
 
 logging.getLogger("optuna").setLevel(logging.ERROR)
 
@@ -1503,6 +1504,51 @@ class RecommendationParameterInferer:
                 "target_clipped": bool(record.get("target_clipped", False)),
             }
 
+    def run_global_calibration(
+        self,
+        iterations: int = 3,
+        duration: int = 24,
+        n_repeats: int = 5,
+        p_trials: int = 20,
+        weight_trials: int = 50,
+    ) -> Dict[str, Any]:
+        """对已加载内容运行公共概率与推荐参数全量校准。"""
+        if self._engine is None:
+            raise RuntimeError("请先调用 load_portraits() 加载用户画像。")
+        stories = list(self.representative_stories.values())
+        if not stories:
+            raise RuntimeError("没有已加载的内容（请先 load_prepared_stories）。")
+        calibrator = EMCalibrationEngine(
+            self._engine, stories, n_cpu=self.n_cpu, seed=self.random_seed
+        )
+        result = calibrator.run_global_calibration(
+            iterations=iterations,
+            duration=duration,
+            n_repeats=n_repeats,
+            p_trials=p_trials,
+            weight_trials=weight_trials,
+        )
+        self.best_weights = dict(result["weights"])
+        return result
+
+    def environment_snapshot(self) -> Dict[str, Any]:
+        """返回重建模拟环境所需的完整 ABM 参数快照。"""
+        if self._engine is None:
+            raise RuntimeError("请先调用 load_portraits() 加载用户画像。")
+        engine = self._engine
+        return {
+            "population_size": int(self.num_agents),
+            "p_online": self.p_online,
+            "belief_update": {
+                "backfire_mu": float(engine.backfire_mu),
+                "backfire_k": float(engine.backfire_k),
+                "learning_rate": float(engine.learning_rate),
+            },
+            "tier_weight": dict(TIER_WEIGHT_DEFAULT),
+            "hours_per_step": float(engine.hours_per_step),
+            "time_scale": float(self.time_scale),
+        }
+
     def precompute_interests(self) -> None:
         """为每条代表性内容预计算全量种群兴趣向量。"""
         if self._compass is None or self._population is None:
@@ -1938,6 +1984,41 @@ def load_portraits_from_dir(portraits_dir: Path) -> List[Dict[str, Any]]:
         if persona:
             personas.append(persona)
     return personas
+
+
+def load_portrait_bundle(
+    portraits_dir: Path,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """加载画像目录，返回 (personas, manifest)。
+
+    personas 按相对文件名排序；manifest 记录实际加载画像的相对文件名与 SHA-256。
+    合法非画像 JSON（无 stable_profile）不进入清单；损坏 JSON 报错并保留 cause，
+    避免静默跳过导致训练出不同人口。
+    """
+    portraits_dir = Path(portraits_dir)
+    personas: List[Dict[str, Any]] = []
+    manifest: List[Dict[str, Any]] = []
+    for json_path in sorted(portraits_dir.glob("*.json")):
+        if json_path.name == "failed_users.json":
+            continue
+        try:
+            with json_path.open("r", encoding="utf-8") as f:
+                profile = json.load(f)
+        except Exception as exc:
+            raise ValueError(f"画像文件无法解析: {json_path}") from exc
+        if not isinstance(profile, dict) or not isinstance(profile.get("stable_profile"), dict):
+            continue
+        persona = _portrait_to_persona(profile)
+        if persona is None:
+            continue
+        personas.append(persona)
+        manifest.append(
+            {
+                "path": json_path.name,
+                "sha256": file_sha256(json_path),
+            }
+        )
+    return personas, manifest
 
 
 def _portrait_to_persona(profile: Dict[str, Any]) -> Optional[Dict[str, Any]]:

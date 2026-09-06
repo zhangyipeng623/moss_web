@@ -37,7 +37,7 @@ class ExperimentYamlConfig(BaseModel):
     global_event: str = ""
     llm: LLMConfig = Field(default_factory=lambda: LLMConfig(model="gpt-4o"))
     llm_small: Optional[LLMConfig] = None
-    agents_csv: str = "configs/experiments/default_agents.csv"
+    agents_csv: str = ""
     portrait: PortraitConfig = Field(default_factory=PortraitConfig)
     system_time: SystemTimeExperimentConfig = Field(
         # D-1 时间基准：每步 1 小时（time_scale=3600 秒/步）
@@ -69,12 +69,34 @@ class RecommenderConfig(BaseModel):
     )
     calibrated_p_base: Dict[str, Any] = Field(default_factory=dict)
     fit_diagnostics: Dict[str, Any] = Field(default_factory=dict)
+    # 公共基础概率（全局标量）：离线实验用，不接入在线 LLM 行为；旧 YAML 缺省为 None
+    p_base_global: Optional[float] = Field(default=None, ge=0.001, le=0.999)
 
 
 class EmbeddingConfig(BaseModel):
     """YAML embedding 段 —— ABM 和 Backend 共用，自动填写。"""
-    model_name: str = "BAAI/bge-m3"
+    model_name: str = "Alibaba-NLP/gte-multilingual-base"
     normalize_embeddings: bool = True
+
+
+class L1L3PoolConfig(BaseModel):
+    """YAML simulation.l1_l3_pool 段 —— L1-L3 大众候选池与动态抽取规则。
+
+    在线模拟启动时，以 L4+L5 画像数量为锚，按 Rogers 比例从候选池随机抽取 L1-L3 simple 用户。
+    """
+    enabled: bool = False
+    csv_path: str = "data/l1_l3_pool/users_all_fields_deduped.csv"
+    # Rogers 5 级采纳者比例（%）：L1/L2/L3/L4+L5
+    ratio_l1: float = 16.0
+    ratio_l2: float = 34.0
+    ratio_l3: float = 34.0
+    ratio_l45: float = 16.0
+    exclude_verified: bool = True
+    # followers 分层区间 [min, max)
+    l1_followers: tuple[int, int] = (0, 100)
+    l2_followers: tuple[int, int] = (100, 1000)
+    l3_followers: tuple[int, int] = (1000, 10000)
+    seed: int = 42
 
 
 class SimulationDefaults(BaseModel):
@@ -102,6 +124,9 @@ class SimulationDefaults(BaseModel):
             "context_boost_cap": 0.3,   # 上下文联想加成上限
         }
     )
+    l1_l3_pool: L1L3PoolConfig = Field(default_factory=L1L3PoolConfig)
+    # 每轮并发调用 LLM 的 Agent 上限（避免打爆模型端点/网络）
+    agent_concurrency: int = 30
 
 
 class CalibrationProfile(BaseModel):

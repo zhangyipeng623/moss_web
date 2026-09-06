@@ -94,6 +94,24 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     portrait_parser.add_argument(
+        "--portraits-dir",
+        help=(
+            "画像输出目录（推荐，便于按数据集分目录）："
+            "单用户模式写入 <portraits-dir>/<user_name>.json；批量模式直接作为输出目录。"
+            "默认 analysis_outputs/portraits/。优先级低于 --output。"
+        ),
+    )
+    portrait_parser.add_argument(
+        "--json-schema",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "启用 JSON Schema 结构化输出（OpenRouter response_format=json_schema），"
+            "强制模型返回固定格式。模型/端点不支持时自动回退纯文本解析。"
+            "用 --no-json-schema 关闭。"
+        ),
+    )
+    portrait_parser.add_argument(
         "--reference-time",
         help=(
             "画像生成参考时间，未提供时会交互输入。"
@@ -119,7 +137,13 @@ def parse_args() -> argparse.Namespace:
     portrait_parser.add_argument(
         "--batch",
         action="store_true",
-        help="批量模式：自动读取 user.xlsx 中全部用户并依次生成画像，此时 --user-name 无需提供",
+        help="批量模式：自动读取 user.xlsx 中全部用户并并行生成画像，此时 --user-name 无需提供",
+    )
+    portrait_parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=10,
+        help="批量模式下同时生成的用户画像数量（并发数），默认 10",
     )
 
     retier_parser = subparsers.add_parser("retier", help="对已有画像 JSON 重新按影响力分级")
@@ -129,58 +153,23 @@ def parse_args() -> argparse.Namespace:
         help="存放画像 JSON 文件的目录路径",
     )
 
-    recommender_parser = subparsers.add_parser("recommender", help="反推推荐参数")
+    recommender_parser = subparsers.add_parser("recommender", help="反推推荐参数（全量公共概率校准）")
     recommender_parser.add_argument(
-        "--data-file",
-        help="推荐系统观测表路径，支持 xlsx/csv",
+        "--train-file",
+        help="训练分区 train.json 路径（由 scripts/prepare_recommender_data.py 生成）",
     )
     recommender_parser.add_argument(
         "--portraits-dir",
         help="用户画像 JSON 目录路径（由 portrait --batch 生成），用于语义处理和种群扩增",
     )
     recommender_parser.add_argument(
-        "--retweet-columns",
-        default="转发,分享,Quotes",
-        help="用于汇总总转发量的列名，逗号分隔",
-    )
-    recommender_parser.add_argument(
-        "--view-column",
-        default="观看量",
-        help="观看量列名，默认 观看量",
-    )
-    recommender_parser.add_argument(
-        "--id-column",
-        default="文章ID",
-        help="内容 ID 列名，默认 文章ID",
-    )
-    recommender_parser.add_argument(
-        "--anchor-percentile",
-        type=float,
-        default=0.8,
-        help="鲁棒缩放锚点分位数，默认 0.8",
-    )
-    recommender_parser.add_argument(
-        "--max-iterations",
-        type=int,
-        default=3,
-        help="EM 校准最大迭代次数，默认 3",
-    )
-    recommender_parser.add_argument(
-        "--num-agents",
-        type=int,
-        default=None,
-        help="ABM 模拟代理数量，未指定时按种子数×10 自动计算（基于 90:9:1 比例）",
-    )
-    recommender_parser.add_argument(
-        "--min-scaled-target",
-        type=int,
-        default=5,
-        help="最小缩放目标阈值，默认 5",
+        "--output-dir",
+        help="输出目录（写入 model.json 与 calibration_profile.yaml，已存在则报错）",
     )
     recommender_parser.add_argument(
         "--embedding-model",
-        default="BAAI/bge-m3",
-        help="文本嵌入模型名称，默认 BAAI/bge-m3",
+        default="Alibaba-NLP/gte-multilingual-base",
+        help="文本嵌入模型名称，默认 Alibaba-NLP/gte-multilingual-base",
     )
     recommender_parser.add_argument(
         "--n-cpu",
@@ -192,33 +181,55 @@ def parse_args() -> argparse.Namespace:
         "--random-seed",
         type=int,
         default=42,
-        help="全链路随机种子（P2-E 可复现：种群合成/引擎/M 步抽样共用），默认 42",
+        help="全链路随机种子（种群合成/引擎/校准共用），默认 42",
     )
     recommender_parser.add_argument(
         "--time-scale",
         type=float,
         default=3600.0,
-        help="实验 system_time.time_scale（每步秒数），ABM hours_per_step=time_scale/3600 单一真值源（A-1），默认 3600",
+        help="实验 system_time.time_scale（每步秒数），默认 3600",
     )
     recommender_parser.add_argument(
         "--rounds",
         type=int,
         default=24,
-        help="实验 runtime.rounds（总步数），默认 24（时间基准：每步 1 小时，总跨度 24 小时）",
+        help="实验 runtime.rounds（总步数，即模拟 duration），默认 24",
     )
     recommender_parser.add_argument(
-        "--robustness-seeds",
-        default="",
-        help="C-5 种子扰动鲁棒性审计：逗号分隔种子列表（如 0,1,2），留空跳过",
+        "--max-iterations",
+        type=int,
+        default=3,
+        help="公共概率与权重交替校准最大迭代次数，默认 3",
     )
     recommender_parser.add_argument(
-        "--input",
-        help=argparse.SUPPRESS,
+        "--n-repeats",
+        type=int,
+        default=5,
+        help="每条内容每次评估的重复次数，默认 5",
     )
     recommender_parser.add_argument(
-        "--output",
-        help="推荐参数输出 JSON 路径，默认写入 analysis_outputs/recommender/<输入文件名>.json",
+        "--p-trials",
+        type=int,
+        default=20,
+        help="公共概率搜索 trial 数，默认 20",
     )
+    recommender_parser.add_argument(
+        "--weight-trials",
+        type=int,
+        default=50,
+        help="权重搜索 trial 数，默认 50",
+    )
+    # 旧参数：保留解析以产生定向迁移错误，不接受训练
+    recommender_parser.add_argument("--data-file", default=None, help=argparse.SUPPRESS)
+    recommender_parser.add_argument("--input", default=None, help=argparse.SUPPRESS)
+    recommender_parser.add_argument("--retweet-columns", default=None, help=argparse.SUPPRESS)
+    recommender_parser.add_argument("--view-column", default=None, help=argparse.SUPPRESS)
+    recommender_parser.add_argument("--id-column", default=None, help=argparse.SUPPRESS)
+    recommender_parser.add_argument("--anchor-percentile", type=float, default=None, help=argparse.SUPPRESS)
+    recommender_parser.add_argument("--min-scaled-target", type=int, default=None, help=argparse.SUPPRESS)
+    recommender_parser.add_argument("--num-agents", type=int, default=None, help=argparse.SUPPRESS)
+    recommender_parser.add_argument("--robustness-seeds", default=None, help=argparse.SUPPRESS)
+    recommender_parser.add_argument("--output", default=None, help=argparse.SUPPRESS)
 
     return parser.parse_args()
 
@@ -231,9 +242,14 @@ async def run_portrait_command(args: argparse.Namespace) -> None:
 
     source, global_event = _resolve_portrait_source(args)
     reference_timestamp, reference_time_text = _resolve_portrait_reference_time(args.reference_time)
+    default_portrait_path = (
+        f"{args.portraits_dir.rstrip('/')}/{source.user_name}.json"
+        if args.portraits_dir
+        else f"analysis_outputs/portraits/{source.user_name}.json"
+    )
     output_path = _resolve_output_path(
         args.output,
-        default_relative_path=f"analysis_outputs/portraits/{source.user_name}.json",
+        default_relative_path=default_portrait_path,
     )
 
     api_key = os.environ.get(args.api_key_env)
@@ -247,7 +263,7 @@ async def run_portrait_command(args: argparse.Namespace) -> None:
         timeout=args.timeout,
     )
     generator = UserPortraitGenerator(reference_timestamp=reference_timestamp)
-    llm_callable = _build_llm_callable(llm)
+    llm_callable = _build_llm_callable(llm, use_json_schema=args.json_schema)
 
     last_error = ""
     max_attempts = 3
@@ -304,7 +320,11 @@ async def run_portrait_batch_command(args: argparse.Namespace) -> None:
     output_dir = (
         Path(args.output).resolve()
         if args.output
-        else Path("analysis_outputs/portraits").resolve()
+        else (
+            Path(args.portraits_dir).resolve()
+            if args.portraits_dir
+            else Path("analysis_outputs/portraits").resolve()
+        )
     )
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -418,7 +438,7 @@ async def run_portrait_batch_command(args: argparse.Namespace) -> None:
         base_url=os.environ.get(args.base_url_env),
         timeout=args.timeout,
     )
-    llm_callable = _build_llm_callable(llm)
+    llm_callable = _build_llm_callable(llm, use_json_schema=args.json_schema)
 
     existing_files = {
         p.stem for p in output_dir.glob("*.json") if p.name != "failed_users.json"
@@ -450,53 +470,72 @@ async def run_portrait_batch_command(args: argparse.Namespace) -> None:
     success_count = 0
     phase3_failed: list[dict[str, str]] = []
     total = len(pending_records)
+    concurrency = max(1, int(args.concurrency))
 
-    print(f"阶段 2/2：批量生成用户画像（{total} 个待生成）...\n")
+    print(f"阶段 2/2：批量生成用户画像（{total} 个待生成，并发 {concurrency}）...\n")
 
-    for idx, record in enumerate(pending_records, start=1):
-        source = record["source"]
-        username = record["username"]
-        tier = record["tier"]
-        print(
-            f"[{idx}/{total}] {username} (Lv{tier}) 画像生成中 ...",
-            end=" ",
-            flush=True,
-        )
+    semaphore = asyncio.Semaphore(concurrency)
 
-        last_error = ""
-        max_attempts = 3
-        profile = None
-        for attempt in range(1, max_attempts + 1):
+    async def _generate_one(record: dict[str, Any]) -> dict[str, Any]:
+        """并发生成单个用户画像（带 3 次重试），返回结构化结果。"""
+        async with semaphore:
+            username = record["username"]
+            tier = record["tier"]
+            last_error = ""
+            max_attempts = 3
+            profile = None
             try:
-                profile = await generator.generate_portrait(
-                    source=source,
-                    llm_callable=llm_callable,
-                )
-                break
-            except PortraitGenerationError as exc:
-                last_error = str(exc)
-            except Exception as exc:
-                last_error = str(exc)
-            if attempt < max_attempts:
-                print(f"\n    第 {attempt} 次失败，重试中...", end=" ", flush=True)
+                for attempt in range(1, max_attempts + 1):
+                    try:
+                        profile = await generator.generate_portrait(
+                            source=record["source"],
+                            llm_callable=llm_callable,
+                        )
+                        break
+                    except PortraitGenerationError as exc:
+                        last_error = str(exc)
+                    except Exception as exc:  # noqa: BLE001
+                        last_error = str(exc)
+                    if attempt < max_attempts:
+                        print(
+                            f"    {username} 第 {attempt} 次失败，重试中 ...",
+                            flush=True,
+                        )
 
-        if profile is None:
-            print(f"失败（{max_attempts} 次重试后）：{last_error}")
+                if profile is None:
+                    return {
+                        "username": username,
+                        "success": False,
+                        "error": last_error or "未知错误",
+                    }
+
+                profile["influence_tier"] = tier
+                profile["influence_tier_label"] = record["tier_label"]
+                output_path = output_dir / f"{record['canonical_name']}.json"
+                _write_json(output_path, profile)
+                return {"username": username, "success": True, "error": ""}
+            except Exception as exc:  # noqa: BLE001
+                return {"username": username, "success": False, "error": str(exc)}
+
+    worker_tasks = [
+        asyncio.create_task(_generate_one(record)) for record in pending_records
+    ]
+    done_count = 0
+    for completed in asyncio.as_completed(worker_tasks):
+        result = await completed
+        done_count += 1
+        if result["success"]:
+            success_count += 1
+            print(f"[{done_count}/{total}] {result['username']} 完成")
+        else:
             phase3_failed.append(
                 {
-                    "user_name": username,
+                    "user_name": result["username"],
                     "reference_time": reference_time_text,
-                    "error_message": last_error or "未知错误",
+                    "error_message": result["error"],
                 }
             )
-            continue
-
-        profile["influence_tier"] = tier
-        profile["influence_tier_label"] = record["tier_label"]
-        output_path = output_dir / f"{record['canonical_name']}.json"
-        _write_json(output_path, profile)
-        success_count += 1
-        print("完成")
+            print(f"[{done_count}/{total}] {result['username']} 失败：{result['error']}")
 
     # ----------------------------------------------------------------
     # 汇总
@@ -608,21 +647,21 @@ def run_retier_command(args: argparse.Namespace) -> None:
 
 
 def _generate_calibration_yaml(
+    output_dir: str,
+    train_file: str,
     portraits_dir: str,
-    data_file: str,
     best_weights: dict,
+    p_base_global: float | None,
     fit_diagnostics: dict,
     embedding_model: str,
     num_seed_users: int,
     abm_population_size: int,
-    calibrated_p_base: dict,
     time_scale: float = 3600.0,
     rounds: int = 24,
 ) -> str:
-    """在 portraits_dir 下生成 calibration_profile.yaml。
+    """在 output_dir 下生成 calibration_profile.yaml（沿用线上字段，新增可选 p_base_global）。
 
-    D-1：时间基准显式写入——system_time.time_scale=3600（每步 1 小时）、
-    runtime.rounds=24（总跨度 24 小时）。
+    D-1：时间基准显式写入——system_time.time_scale、runtime.rounds。
     """
     import yaml
 
@@ -649,7 +688,7 @@ def _generate_calibration_yaml(
             portraits_dir=str(Path(portraits_dir).resolve()),
             num_seed_users=num_seed_users,
             abm_population_size=abm_population_size,
-            input_data_file=str(Path(data_file).name),
+            input_data_file=str(Path(train_file).name),
         ),
         recommender=RecommenderConfig(
             weights=RecommenderWeights(
@@ -659,13 +698,14 @@ def _generate_calibration_yaml(
                 w_random=best_weights.get("w_rand", 0.15),
             ),
             decay_lambda=best_weights.get("decay_lambda", 0.5),
-            calibrated_p_base=calibrated_p_base or {},
+            calibrated_p_base={},
+            p_base_global=p_base_global,
             fit_diagnostics=fit_diagnostics or {},
         ),
         embedding=EmbeddingConfig(model_name=embedding_model),
     )
 
-    yaml_path = Path(portraits_dir) / "calibration_profile.yaml"
+    yaml_path = Path(output_dir) / "calibration_profile.yaml"
     yaml_content = yaml.safe_dump(
         profile.model_dump(exclude_none=True),
         allow_unicode=True,
@@ -688,126 +728,169 @@ def _generate_calibration_yaml(
         f"#       timeout: 180\n"
         f"#       api_key_env: API_KEY_SMALL\n"
         f"#       base_url_env: BASE_URL_SMALL\n"
+        f"#\n"
+        f"# L1-L3 大众用户动态抽取（可选）：simulation.l1_l3_pool.enabled=true 时，\n"
+        f"# 每次 main.py 启动按 Rogers 比例（16/34/34，以 L4+L5 数量为锚）从候选池 csv 随机抽取 L1-L3 simple 用户：\n"
+        f"#   simulation:\n"
+        f"#     l1_l3_pool:\n"
+        f"#       enabled: true\n"
+        f"#       csv_path: data/l1_l3_pool/users_all_fields_deduped.csv\n"
+        f"#       exclude_verified: true\n"
+        f"#       seed: 42\n"
         f"\n"
     )
     with open(yaml_path, "w", encoding="utf-8") as f:
         f.write(header + yaml_content)
 
-    print(f"[calibration] 配置文件已生成: {yaml_path}")
     return str(yaml_path)
 
 
+def _raise_if_legacy_recommender_args(args: argparse.Namespace) -> None:
+    """检测旧 recommender 参数并给出定向迁移错误。"""
+    legacy = {
+        "--data-file": getattr(args, "data_file", None),
+        "--input": getattr(args, "input", None),
+        "--retweet-columns": getattr(args, "retweet_columns", None),
+        "--view-column": getattr(args, "view_column", None),
+        "--id-column": getattr(args, "id_column", None),
+        "--anchor-percentile": getattr(args, "anchor_percentile", None),
+        "--min-scaled-target": getattr(args, "min_scaled_target", None),
+        "--num-agents": getattr(args, "num_agents", None),
+        "--robustness-seeds": getattr(args, "robustness_seeds", None),
+        "--output": getattr(args, "output", None),
+    }
+    provided = [name for name, value in legacy.items() if value is not None]
+    if provided:
+        joined = "、".join(provided)
+        raise ValueError(
+            f"旧 recommender 参数（{joined}）已迁移：请先用 "
+            f"scripts/prepare_recommender_data.py 准备数据包，再用 --train-file 训练。"
+        )
+
+
 def run_recommender_command(args: argparse.Namespace) -> None:
-    """执行推荐参数反推命令（v8 向量化 ABM + Optuna EM）。"""
+    """执行推荐参数反推命令（公共概率全量校准 + 可重建模型）。"""
+    from analysis.recommender_data import file_sha256, load_split, publish_output
     from analysis.recommender_parameter_inference import (
         RecommendationParameterInferer,
-        build_story_observations,
-        load_portraits_from_dir,
+        load_portrait_bundle,
     )
 
-    # 1. 读取内容观测数据
-    records, anchor_percentile, max_iterations, input_stem = (
-        _resolve_recommender_input(args)
+    _raise_if_legacy_recommender_args(args)
+
+    if not args.train_file:
+        raise ValueError("请提供 --train-file（训练分区 train.json 路径）。")
+    if not args.portraits_dir:
+        raise ValueError("请提供 --portraits-dir（用户画像目录）。")
+    if not args.output_dir:
+        raise ValueError("请提供 --output-dir（输出目录）。")
+
+    train_path = Path(args.train_file).resolve()
+    train_partition, manifest = load_split(train_path, expected_split="train")
+
+    portraits_dir = Path(args.portraits_dir).resolve()
+    if not portraits_dir.is_dir():
+        raise ValueError(f"画像目录不存在：{portraits_dir}")
+    personas, portrait_manifest = load_portrait_bundle(portraits_dir)
+    if not personas:
+        raise ValueError(f"画像目录没有可用画像：{portraits_dir}")
+
+    num_agents = int(train_partition["num_agents"])
+    records = train_partition["records"]
+    if not records:
+        raise ValueError("训练分区 records 为空。")
+
+    print(
+        f"ABM 规模: {num_agents} 人（种子 {len(personas)} 个用户画像，训练 {len(records)} 条）"
     )
-    observations = build_story_observations(records)
 
-    # 2. 确定 ABM 规模
-    portraits_dir = None
-    if args.portraits_dir:
-        portraits_dir = Path(args.portraits_dir).resolve()
-    personas: list[dict[str, Any]] = []
-    if portraits_dir and portraits_dir.is_dir():
-        personas = load_portraits_from_dir(portraits_dir)
-
-    num_agents = _resolve_num_agents(args.num_agents, len(personas))
-    print(f"ABM 规模: {num_agents} 人（种子 {len(personas)} 个用户画像）")
-
-    # 3. 初始化推理器（P2-E：固定随机种子保证可复现）
     inferer = RecommendationParameterInferer(
         num_agents=num_agents,
-        min_scaled_target=args.min_scaled_target,
+        min_scaled_target=int(manifest.get("min_scaled_target", 5)),
         embedding_model=args.embedding_model,
         n_cpu=args.n_cpu,
         target_size_for_sampling=num_agents,
         random_seed=args.random_seed,
         time_scale=args.time_scale,
     )
+    inferer.load_portraits(personas)
+    inferer.load_prepared_stories(records)
+    inferer.precompute_interests()
 
-    # 4. 加载画像 → 语义处理 → 种群扩增
-    if personas:
-        print(f"加载 {len(personas)} 个用户画像，执行语义处理与种群扩增...")
-        inferer.load_portraits(personas)
-    else:
-        print("警告：未提供画像目录（--portraits-dir），跳过语义处理，使用均匀随机种群。")
-
-    # 5. 筛选代表性内容（独立于画像）
-    representative_stories = inferer.select_representative_stories(
-        observations,
-        anchor_percentile=anchor_percentile,
+    result = inferer.run_global_calibration(
+        iterations=args.max_iterations,
+        duration=args.rounds,
+        n_repeats=args.n_repeats,
+        p_trials=args.p_trials,
+        weight_trials=args.weight_trials,
     )
 
-    best_weights: dict[str, Any] = {}
-    if representative_stories:
-        # 6. 预计算兴趣向量
-        if personas:
-            inferer.precompute_interests()
+    env = inferer.environment_snapshot()
+    weights = result["weights"]
+    p_base_global = result["p_base_global"]
+    diagnostics = result["diagnostics"]
 
-        # C-1：70/30 留出切分（EM 只用训练集，指标在验证集上算）
-        inferer.split_holdout(test_ratio=0.3)
-
-        # 7. EM 校准（含留出验证 / 消融 / 可选种子鲁棒性审计）
-        best_weights = inferer.run_em_calibration_loop(
-            max_iterations=max_iterations,
-            robustness_seeds=_parse_int_list(args.robustness_seeds) or None,
-        )
-
-    result = {
-        "input_meta": {
-            "record_count": len(records),
-            "selected_story_count": len(representative_stories),
-            "anchor_percentile": anchor_percentile,
-            "max_iterations": max_iterations,
-            "num_agents": num_agents,
-            "num_seeds": len(personas),
-            "embedding_model": args.embedding_model,
-            "p_online": inferer.p_online,
-            "random_seed": args.random_seed,
-            "time_scale": args.time_scale,
-            "hours_per_step": args.time_scale / 3600.0,
-            "holdout_test_ratio": 0.3,
-            "robustness_seeds": _parse_int_list(args.robustness_seeds),
-            "trajectory_loss_available": any(
-                bool(story.get("repost_curve"))
-                for story in representative_stories.values()
-            ),
-            "env_versions": _collect_env_versions(),
+    model = {
+        "schema_version": 1,
+        "data": {
+            "train_hash": file_sha256(train_path),
+            "manifest_hash": file_sha256(train_path.parent / "manifest.json"),
+            "train_story_ids": [str(r["story_id"]) for r in records],
+            "scale_ratio": train_partition["scale_ratio"],
         },
-        "representative_stories": representative_stories,
-        "calibrated_probs": inferer.calibrated_probs,
-        "best_weights": best_weights,
-        "weight_fit_diagnostics": inferer.weight_fit_diagnostics,
+        "weights": {k: weights[k] for k in ("w_i", "w_pop", "w_time", "w_rand")},
+        "decay_lambda": weights["decay_lambda"],
+        "p_base_mode": "global",
+        "p_base_global": p_base_global,
+        "training": {
+            "budget": {
+                "iterations": args.max_iterations,
+                "p_trials": args.p_trials,
+                "weight_trials": args.weight_trials,
+                "n_repeats": args.n_repeats,
+                "duration": args.rounds,
+            },
+            "loss_name": diagnostics["loss_name"],
+            "best_iteration": diagnostics["best_iteration"],
+            "best_loss": diagnostics["best_loss"],
+            "replay_loss": diagnostics["replay_loss"],
+            "rounds": diagnostics["rounds"],
+        },
+        "environment": {
+            "training_seed": args.random_seed,
+            **env,
+            "rounds": args.rounds,
+        },
+        "portraits": {
+            "num_seed_users": len(personas),
+            "files": portrait_manifest,
+        },
+        "embedding": {
+            "model_name": args.embedding_model,
+            "normalize_embeddings": True,
+            "versions": _collect_env_versions(),
+        },
     }
-    output_path = _resolve_output_path(
-        args.output,
-        default_relative_path=f"analysis_outputs/recommender/{input_stem}.json",
-    )
-    _write_json(output_path, result)
-    print(f"推荐参数结果已写入：{output_path}")
 
-    # 8. 生成 calibration_profile.yaml（闭环配置文件）
-    if portraits_dir and best_weights:
+    output_dir = Path(args.output_dir).resolve()
+    with publish_output(output_dir) as temp_dir:
+        _write_json(temp_dir / "model.json", model)
         _generate_calibration_yaml(
+            output_dir=str(temp_dir),
+            train_file=str(train_path),
             portraits_dir=str(portraits_dir),
-            data_file=args.data_file,
-            best_weights=best_weights,
-            fit_diagnostics=inferer.weight_fit_diagnostics,
+            best_weights=weights,
+            p_base_global=p_base_global,
+            fit_diagnostics=diagnostics,
             embedding_model=args.embedding_model,
             num_seed_users=len(personas),
             abm_population_size=num_agents,
-            calibrated_p_base=inferer.calibrated_probs,
             time_scale=args.time_scale,
             rounds=args.rounds,
         )
+
+    print(f"训练模型已写入：{output_dir / 'model.json'}")
+    print(f"配置文件已写入：{output_dir / 'calibration_profile.yaml'}")
 
 
 def _resolve_portrait_source(
@@ -825,70 +908,6 @@ def _resolve_portrait_source(
         user_file=args.user_file,
         post_file=args.post_file,
     )
-
-
-def _resolve_recommender_input(
-    args: argparse.Namespace,
-) -> tuple[list[dict[str, Any]], float, int, str]:
-    """解析推荐参数命令输入来源，返回 (records, anchor_percentile, max_iterations, stem)。"""
-    if args.input:
-        input_path = Path(args.input).resolve()
-        payload = _load_json_object(input_path)
-        records = payload.get("records")
-        if not isinstance(records, list) or not records:
-            raise ValueError("推荐参数输入 JSON 需要提供非空 records 数组。")
-        _validate_recommender_records(records)
-        anchor_percentile = float(payload.get("anchor_percentile", 0.8))
-        max_iterations = int(payload.get("max_iterations", 3))
-        _validate_recommender_meta(anchor_percentile, max_iterations)
-        return records, anchor_percentile, max_iterations, input_path.stem
-
-    if not args.data_file:
-        raise ValueError("请提供 --data-file，或使用兼容模式的 --input。")
-
-    data_file = Path(args.data_file).resolve()
-    records = _build_recommender_records_from_table(
-        path=data_file,
-        retweet_columns=args.retweet_columns,
-        view_column=args.view_column,
-        id_column=args.id_column,
-    )
-    _validate_recommender_records(records)
-    _validate_recommender_meta(args.anchor_percentile, args.max_iterations)
-    return (
-        records,
-        args.anchor_percentile,
-        args.max_iterations,
-        data_file.stem,
-    )
-
-
-def _parse_int_list(value: str) -> list[int]:
-    """解析逗号分隔整数列表（如 CLI 的 --robustness-seeds）。"""
-    if not value or not value.strip():
-        return []
-    parsed: list[int] = []
-    for item in value.split(","):
-        item = item.strip()
-        if not item:
-            continue
-        try:
-            parsed.append(int(item))
-        except ValueError as exc:
-            raise ValueError(f"无法解析整数列表：{value}") from exc
-    return parsed
-
-
-def _resolve_num_agents(cli_value: int | None, num_seeds: int) -> int:
-    """根据 CLI 参数和种子数确定 ABM 规模。
-
-    优先级：CLI 显式指定 > 种子数 × 10 (基于 90:9:1) > 默认 1500
-    """
-    if cli_value is not None and cli_value > 0:
-        return cli_value
-    if num_seeds > 0:
-        return num_seeds * 10
-    return 1500
 
 
 def _build_portrait_source_from_excel(
@@ -1066,50 +1085,53 @@ def _build_portrait_source_from_matched(
     return source, ""
 
 
-def _build_recommender_records_from_table(
-    path: Path,
-    retweet_columns: str,
-    view_column: str,
-    id_column: str,
-) -> list[dict[str, Any]]:
-    """从原始推荐系统 Excel 表中抽取观测记录。"""
-    rows = _load_tabular_rows(path)
-    retweet_fields = [item.strip() for item in retweet_columns.split(",") if item.strip()]
-    if not retweet_fields:
-        raise ValueError("retweet_columns 不能为空。")
+def _build_json_schema_response_format(schema: Any) -> dict[str, Any]:
+    """把 Pydantic schema 转成 OpenAI response_format=json_schema 结构。"""
+    from langchain_core.utils.function_calling import convert_to_openai_function
 
-    records: list[dict[str, Any]] = []
-    for index, row in enumerate(rows):
-        total_repost = sum(_safe_float(row.get(field, 0)) for field in retweet_fields)
-        view_count = _safe_float(row.get(view_column, 0))
-        story_id = _normalize_scalar(row.get(id_column)) or str(index)
-        if total_repost <= 0 or view_count <= 100:
-            continue
-        records.append(
-            {
-                "story_id": story_id,
-                "repost_count": total_repost,
-                "view_count": view_count,
-            }
-        )
-    if not records:
-        raise ValueError("按当前 Excel 列配置没有筛出有效的推荐观测数据。")
-    return records
+    function = convert_to_openai_function(schema, strict=False)
+    parameters = function.get("parameters") or {}
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": function.get("name") or getattr(schema, "__name__", "Output"),
+            "schema": parameters,
+            "strict": False,
+        },
+    }
 
 
-def _build_llm_callable(llm: ChatOpenAI) -> LlmCallable:
-    """把通用 LLM 客户端包装成画像生成器使用的调用签名。"""
+def _build_llm_callable(llm: ChatOpenAI, use_json_schema: bool = True) -> LlmCallable:
+    """把通用 LLM 客户端包装成画像生成器使用的调用签名。
+
+    use_json_schema=True 时通过 response_format(json_schema) 引导模型输出固定结构，
+    但解析统一走 json_repair（自动剥离 ```json 围栏、修复语法），
+    不依赖 LangChain 的严格解析器；端点不支持 response_format 时回退纯文本解析。
+    """
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    LlmCallable = Callable[[str, str], Awaitable[dict[str, Any]]]
+    async def _call(
+        system_prompt: str,
+        user_prompt: str,
+        schema: Any = None,
+    ) -> dict[str, Any]:
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt),
+        ]
 
-    async def _call(system_prompt: str, user_prompt: str) -> dict[str, Any]:
-        result = await llm.ainvoke(
-            [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=user_prompt),
-            ]
-        )
+        if use_json_schema and schema is not None:
+            try:
+                response_format = _build_json_schema_response_format(schema)
+                structured_llm = llm.bind(response_format=response_format)
+                result = await structured_llm.ainvoke(messages)
+                extracted = _extract_json_dict(getattr(result, "content", None))
+                if extracted:
+                    return extracted
+            except Exception as exc:  # noqa: BLE001
+                print(f"[结构化输出] response_format 调用失败，回退纯文本解析：{exc}")
+
+        result = await llm.ainvoke(messages)
         return _extract_json_dict(result.content)
 
     return _call
@@ -1267,32 +1289,6 @@ def _resolve_post_timestamp(row: dict[str, Any]) -> int:
     return 0
 
 
-def _validate_recommender_records(records: list[Any]) -> None:
-    """校验推荐参数输入记录。"""
-    required_fields = ("story_id", "repost_count", "view_count")
-    for index, item in enumerate(records):
-        if not isinstance(item, dict):
-            raise ValueError(f"records[{index}] 必须是 JSON 对象。")
-        for field_name in required_fields:
-            if field_name not in item:
-                raise ValueError(f"records[{index}] 缺少字段：{field_name}")
-        try:
-            float(item["repost_count"])
-            float(item["view_count"])
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"records[{index}] 的 repost_count/view_count 必须是数值。"
-            ) from exc
-
-
-def _validate_recommender_meta(anchor_percentile: float, max_iterations: int) -> None:
-    """校验推荐参数元数据。"""
-    if not 0 < anchor_percentile <= 1:
-        raise ValueError("anchor_percentile 必须在 (0, 1] 区间内。")
-    if max_iterations <= 0:
-        raise ValueError("max_iterations 必须大于 0。")
-
-
 def _collect_env_versions() -> dict[str, str]:
     """收集关键依赖版本（P2-E 可复现存档）。"""
     import numpy as np
@@ -1323,10 +1319,23 @@ def _collect_env_versions() -> dict[str, str]:
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    """写入 JSON 文件。"""
+    """写入 JSON 文件（自动把 numpy 类型转成原生类型）。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as file:
-        json.dump(payload, file, ensure_ascii=False, indent=2)
+        json.dump(payload, file, ensure_ascii=False, indent=2, default=_json_default)
+
+
+def _json_default(value: Any) -> Any:
+    """json.dump 的 default 序列化器：numpy 类型 → Python 原生类型。"""
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.floating):
+        return float(value)
+    if isinstance(value, np.bool_):
+        return bool(value)
+    raise TypeError(f"Object of type {value.__class__.__name__} is not JSON serializable")
 
 
 def _resolve_output_path(path_value: str | None, default_relative_path: str) -> Path:
