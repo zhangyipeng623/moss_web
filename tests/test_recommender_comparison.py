@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import csv
 import json
 import tempfile
@@ -86,8 +87,8 @@ def _make_model(tmp: Path, dataset: Path, portraits: Path, p_base: float = 0.1) 
     model = {
         "schema_version": 1,
         "data": {
-            "train_hash": "d" * 64,
-            "manifest_hash": "e" * 64,
+            "train_hash": manifest["file_hashes"]["train"],
+            "manifest_hash": hashlib.sha256((dataset / "manifest.json").read_bytes()).hexdigest(),
             "train_story_ids": manifest["train_ids"],
             "scale_ratio": manifest["scale_ratio"],
         },

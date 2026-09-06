@@ -1150,30 +1150,15 @@ class EMCalibrationEngine:
         """
         if not self.stories:
             raise RuntimeError("没有可校准的内容（stories 为空）。")
-        decay_lambda = float(weights.get("decay_lambda", 0.5))
-        losses: List[float] = []
-        for offset, story in enumerate(self.stories):
-            i_pop = np.asarray(story["I_pop"])
-            target = float(story.get("scaled_target", 0.0))
-            story_rng_base = rng_base + offset * 1000003
-            finals: List[float] = []
-            for repeat in range(n_repeats):
-                repeat_rng = np.random.default_rng(story_rng_base + repeat * 100003)
-                hist, _ = self.engine.run_simulation(
-                    weights, p_base, i_pop, duration=duration,
-                    decay_lambda=decay_lambda, rng=repeat_rng,
-                )
-                final = float(hist[-1])
-                if not np.isfinite(final):
-                    raise RuntimeError(
-                        f"仿真终值非有限：story={story.get('story_id', offset)}"
-                    )
-                finals.append(final)
-            per_story = float(np.mean([abs(f - target) for f in finals])) / max(
-                self.engine.N, 1
-            )
-            losses.append(per_story)
-        return float(np.mean(losses))
+        finals = run_fixed_simulations(
+            self.engine, self.stories, weights, p_base,
+            duration=duration, n_repeats=n_repeats, seed=rng_base,
+            n_cpu=self.n_cpu,
+        )
+        if not np.isfinite(finals).all():
+            raise RuntimeError("仿真终值非有限，无法计算训练损失。")
+        targets = np.asarray([story["scaled_target"] for story in self.stories], dtype=float)
+        return float(np.mean(np.abs(finals - targets[:, None])) / max(self.engine.N, 1))
 
     def _optimize_p_base(
         self,

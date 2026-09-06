@@ -253,6 +253,14 @@ def compare_models(
 
     model = _load_model(model_path)
     test_partition, _manifest = load_split(test_path, expected_split="test")
+    data = model["data"]
+    if data.get("manifest_hash") != file_sha256(test_path.parent / "manifest.json"):
+        raise ValueError("测试数据包 manifest 与训练模型不一致。")
+    if data.get("train_hash") != _manifest["file_hashes"].get("train"):
+        raise ValueError("数据包训练分区散列与模型不一致。")
+    model_scale = float(data.get("scale_ratio", float("nan")))
+    if not np.isfinite(model_scale) or model_scale <= 0 or model_scale != float(test_partition["scale_ratio"]):
+        raise ValueError("测试分区缩放比例与训练模型不一致。")
     test_records = test_partition["records"]
     if not test_records:
         raise ValueError("测试分区 records 为空。")
@@ -351,7 +359,7 @@ def compare_models(
         "rmse": _diff(cand_metrics["rmse"], base_metrics["rmse"]),
         "mre_nonzero": _diff(cand_metrics["mre_nonzero"], base_metrics["mre_nonzero"]),
         "absolute_pass_rate": _diff(
-            cand_metrics["absolute_pass_rate"], base_metrics["absolute_pass_rate"]
+            base_metrics["absolute_pass_rate"], cand_metrics["absolute_pass_rate"]
         ),
     }
     improvement_rel = {
@@ -361,6 +369,14 @@ def compare_models(
 
     mae_diff_ci = _bootstrap_mae_diff(
         cand_finals.mean(axis=1), base_finals.mean(axis=1), targets, seed=seed
+    )
+
+    per_story_rows = _build_per_story_rows(
+        story_ids, targets, clipped,
+        cand_finals, "main", "candidate",
+        base_finals, "main", name,
+        p_base=p_base, n_repeats=n_repeats,
+        relative_threshold=relative_threshold, absolute_threshold=absolute_threshold,
     )
 
     grid_seen: set = set()
@@ -373,12 +389,22 @@ def compare_models(
         if abs(key - p_base) < 1e-12:
             c_metrics, b_metrics = cand_metrics, base_metrics
         else:
+            c_finals = _run(candidate_weights, key)
+            b_finals = _run(baseline_weights, key)
+            per_story_rows.extend(_build_per_story_rows(
+                story_ids, targets, clipped,
+                c_finals, f"p_base={key}", "candidate",
+                b_finals, f"p_base={key}", name,
+                p_base=key, n_repeats=n_repeats,
+                relative_threshold=relative_threshold,
+                absolute_threshold=absolute_threshold,
+            ))
             c_metrics = compute_metrics(
-                targets, _run(candidate_weights, key),
+                targets, c_finals,
                 relative_threshold=relative_threshold, absolute_threshold=absolute_threshold,
             )
             b_metrics = compute_metrics(
-                targets, _run(baseline_weights, key),
+                targets, b_finals,
                 relative_threshold=relative_threshold, absolute_threshold=absolute_threshold,
             )
         sensitivity.append(
@@ -423,14 +449,6 @@ def compare_models(
         },
         "sensitivity": sensitivity,
     }
-
-    per_story_rows = _build_per_story_rows(
-        story_ids, targets, clipped,
-        cand_finals, "candidate", "candidate",
-        base_finals, "baseline", name,
-        p_base=p_base, n_repeats=n_repeats,
-        relative_threshold=relative_threshold, absolute_threshold=absolute_threshold,
-    )
 
     with publish_output(output_dir) as temp_dir:
         with (temp_dir / "summary.json").open("w", encoding="utf-8") as f:
